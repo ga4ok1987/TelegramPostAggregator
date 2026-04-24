@@ -185,9 +185,17 @@ public sealed class TelegramFeedDeliveryService(
         IReadOnlyList<Domain.Entities.TelegramPost> posts,
         CancellationToken cancellationToken)
     {
+        var primaryPost = posts[0];
+        var channelUrl = ResolveChannelLink(primaryPost.Channel.UsernameOrInviteLink, primaryPost.OriginalPostUrl);
+        var captionRender = TelegramPostMessageFormatter.FormatCaptionPartsHtml(
+            primaryPost.Channel.ChannelName,
+            primaryPost.RawText,
+            primaryPost.OriginalPostUrl,
+            channelUrl);
+
         if (posts.Count > 1 && !string.IsNullOrWhiteSpace(posts[0].MediaGroupId))
         {
-            var albumResponse = await SendMediaGroupAsync(chatId, posts, cancellationToken);
+            var albumResponse = await SendMediaGroupAsync(chatId, posts, captionRender.Caption, cancellationToken);
             if (albumResponse is not null)
             {
                 if (albumResponse.StatusCode == HttpStatusCode.RequestEntityTooLarge)
@@ -195,14 +203,15 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return albumResponse;
+                return albumResponse.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : albumResponse;
             }
         }
 
-        var post = posts[0];
+        var post = primaryPost;
         var message = FormatMessage(post.Channel.ChannelName, post.Channel.UsernameOrInviteLink, post.RawText, post.OriginalPostUrl, MessageTextLimit);
         var metadata = ParseMetadata(post.MetadataJson);
-        var mediaCaption = FormatMessage(post.Channel.ChannelName, post.Channel.UsernameOrInviteLink, post.RawText, post.OriginalPostUrl, MediaCaptionLimit);
 
         if (IsIgnorablePost(post, metadata))
         {
@@ -220,14 +229,16 @@ public sealed class TelegramFeedDeliveryService(
             if (!string.IsNullOrWhiteSpace(mediaLocalPath) && File.Exists(mediaLocalPath))
             {
                 var response = await telegramBotGateway.SendPhotoAsync(
-                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, mediaCaption, "photo", HtmlParseMode),
+                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, captionRender.Caption, "photo", HtmlParseMode),
                     cancellationToken);
                 if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
                 {
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return response;
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -237,14 +248,16 @@ public sealed class TelegramFeedDeliveryService(
             if (!string.IsNullOrWhiteSpace(mediaLocalPath) && File.Exists(mediaLocalPath))
             {
                 var response = await telegramBotGateway.SendVideoAsync(
-                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, mediaCaption, "video", HtmlParseMode),
+                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, captionRender.Caption, "video", HtmlParseMode),
                     cancellationToken);
                 if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
                 {
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return response;
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -273,6 +286,7 @@ public sealed class TelegramFeedDeliveryService(
     private async Task<TelegramBotApiResultDto?> SendMediaGroupAsync(
         long chatId,
         IReadOnlyList<Domain.Entities.TelegramPost> posts,
+        string caption,
         CancellationToken cancellationToken)
     {
         var items = new List<TelegramBotMediaGroupItemDto>();
@@ -294,11 +308,30 @@ public sealed class TelegramFeedDeliveryService(
             items.Add(new TelegramBotMediaGroupItemDto(
                 mediaLocalPath,
                 metadata.MediaKind,
-                index == 0 ? FormatMessage(post.Channel.ChannelName, post.Channel.UsernameOrInviteLink, post.RawText, post.OriginalPostUrl, MediaCaptionLimit) : null,
+                index == 0 ? caption : null,
                 index == 0 ? HtmlParseMode : null));
         }
 
         return await telegramBotGateway.SendMediaGroupAsync(new TelegramBotMediaGroupMessageDto(chatId, items), cancellationToken);
+    }
+
+    private async Task<TelegramBotApiResultDto> SendOverflowMessagesAsync(
+        long chatId,
+        IReadOnlyList<string> overflowMessages,
+        CancellationToken cancellationToken)
+    {
+        foreach (var overflowMessage in overflowMessages)
+        {
+            var response = await telegramBotGateway.SendMessageAsync(
+                new TelegramBotOutboundMessageDto(chatId, overflowMessage, ParseMode: HtmlParseMode),
+                cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return response;
+            }
+        }
+
+        return new TelegramBotApiResultDto(true, HttpStatusCode.OK);
     }
 
     private async Task<string?> EnsureMediaLocalPathAsync(

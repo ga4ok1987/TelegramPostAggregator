@@ -92,6 +92,44 @@ public static class TelegramPostMessageFormatter
             : $"{header}{BlockSeparator}{text}{footer}";
     }
 
+    public static CaptionRenderResult FormatCaptionPartsHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null)
+    {
+        var header = BuildHeaderHtml(channelName, channelUrl);
+        var body = NormalizeCaptionBody(rawText);
+        var footer = string.IsNullOrWhiteSpace(originalPostUrl) ? string.Empty : HtmlEncode(originalPostUrl.Trim());
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            var captionWithoutBody = string.IsNullOrWhiteSpace(footer)
+                ? header
+                : $"{header}{BlockSeparator}{footer}";
+            return new CaptionRenderResult(captionWithoutBody, []);
+        }
+
+        var encodedBody = HtmlEncode(body);
+        var fullCaption = string.IsNullOrWhiteSpace(footer)
+            ? $"{header}{BlockSeparator}{encodedBody}"
+            : $"{header}{BlockSeparator}{encodedBody}{BlockSeparator}{footer}";
+
+        if (fullCaption.Length <= CaptionTextLimit)
+        {
+            return new CaptionRenderResult(fullCaption, []);
+        }
+
+        var maxCaptionBodyLength = Math.Max(0, CaptionTextLimit - header.Length - BlockSeparator.Length);
+        var firstChunk = TakeHtmlEncodedChunk(body, maxCaptionBodyLength);
+        var caption = string.IsNullOrWhiteSpace(firstChunk.Encoded)
+            ? header
+            : $"{header}{BlockSeparator}{firstChunk.Encoded}";
+
+        var remainingBody = body[firstChunk.ConsumedLength..].TrimStart();
+        var overflowMessages = string.IsNullOrWhiteSpace(remainingBody)
+            ? (string.IsNullOrWhiteSpace(footer) ? [] : [$"{footer}"])
+            : SplitOverflowHtml(remainingBody, footer);
+
+        return new CaptionRenderResult(caption, overflowMessages);
+    }
+
     private static string ComposeFullText(string channelName, string rawText, string? originalPostUrl)
     {
         var text = string.IsNullOrWhiteSpace(rawText) ? "(no text)" : rawText.Trim();
@@ -239,6 +277,39 @@ public static class TelegramPostMessageFormatter
 
     private static string HtmlEncode(string value) =>
         System.Net.WebUtility.HtmlEncode(value);
+
+    private static IReadOnlyList<string> SplitOverflowHtml(string body, string footer)
+    {
+        var parts = new List<string>();
+        var remaining = body.Trim();
+
+        while (!string.IsNullOrWhiteSpace(remaining))
+        {
+            var remainingEncoded = HtmlEncode(remaining);
+            var canFitLast = string.IsNullOrWhiteSpace(footer)
+                ? remainingEncoded.Length <= MessageTextLimit
+                : remainingEncoded.Length + BlockSeparator.Length + footer.Length <= MessageTextLimit;
+
+            if (canFitLast)
+            {
+                parts.Add(string.IsNullOrWhiteSpace(footer)
+                    ? remainingEncoded
+                    : $"{remainingEncoded}{BlockSeparator}{footer}");
+                return parts;
+            }
+
+            var chunk = TakeHtmlEncodedChunk(remaining, MessageTextLimit);
+            parts.Add(chunk.Encoded);
+            remaining = remaining[chunk.ConsumedLength..].TrimStart();
+        }
+
+        if (!string.IsNullOrWhiteSpace(footer))
+        {
+            parts.Add(footer);
+        }
+
+        return parts;
+    }
 
     private sealed record HtmlChunk(string Encoded, int ConsumedLength);
 
