@@ -156,9 +156,6 @@ public sealed class TelegramFeedDeliveryService(
                     "Delivery time limit reached for subscription {SubscriptionId} and chat {ChatId}. Moving it to the back of the queue.",
                     subscription.Id,
                     subscription.User.TelegramUserId);
-                await errorAlertService.SendAsync(
-                    "Delivery time limit reached",
-                    $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}");
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -453,11 +450,6 @@ public sealed class TelegramFeedDeliveryService(
                 subscription.User.TelegramUserId,
                 (int)response.StatusCode,
                 responseBody);
-
-            await errorAlertService.SendAsync(
-                "Skipping undeliverable post",
-                $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}\nPostId: {post.Id}\nStatusCode: {(int)response.StatusCode}\nResponse: {responseBody}",
-                cancellationToken: cancellationToken);
             return true;
         }
 
