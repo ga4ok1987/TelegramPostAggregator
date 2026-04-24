@@ -4,75 +4,88 @@ namespace TelegramPostAggregator.Application.Services.Bot;
 
 public sealed class BotMessageCatalog
 {
-    public string EmptyUpdatePrompt => "Оберіть дію з меню нижче.";
+    private const string GreenCircle = "\U0001F7E2";
+    private const string PauseIcon = "\u23F8";
+
+    public string EmptyUpdatePrompt => "\u041e\u0431\u0435\u0440\u0456\u0442\u044c \u0434\u0456\u044e \u0437 \u043c\u0435\u043d\u044e \u043d\u0438\u0436\u0447\u0435.";
 
     public string BuildStartMessage(int resumedCount) =>
         resumedCount > 0
-            ? $"Поновив {resumedCount} підписок. Надішліть посилання на Telegram-канал або відкрийте список підписок."
-            : "Бот активний. Надішліть посилання на Telegram-канал або відкрийте список підписок.";
+            ? $"\u041f\u043e\u043d\u043e\u0432\u0438\u0432 {resumedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a. \u041d\u0430\u0434\u0456\u0448\u043b\u0456\u0442\u044c \u043f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u043d\u0430 Telegram-\u043a\u0430\u043d\u0430\u043b \u0430\u0431\u043e \u0432\u0456\u0434\u043a\u0440\u0438\u0439\u0442\u0435 \u0441\u043f\u0438\u0441\u043e\u043a \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
+            : "\u0411\u043e\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u0438\u0439. \u041d\u0430\u0434\u0456\u0448\u043b\u0456\u0442\u044c \u043f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u043d\u0430 Telegram-\u043a\u0430\u043d\u0430\u043b \u0430\u0431\u043e \u0432\u0456\u0434\u043a\u0440\u0438\u0439\u0442\u0435 \u0441\u043f\u0438\u0441\u043e\u043a \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a.";
 
-    public string PauseConfirmationPrompt => "Поставити всі підписки на паузу?";
+    public string PauseConfirmationPrompt => "\u041f\u043e\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0432\u0441\u0456 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438 \u043d\u0430 \u043f\u0430\u0443\u0437\u0443?";
 
-    public string PauseConfirmationCallbackNotice => "Підтвердіть зупинку або скасуйте.";
+    public string PauseConfirmationCallbackNotice => "\u041f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0456\u0442\u044c \u0437\u0443\u043f\u0438\u043d\u043a\u0443 \u0430\u0431\u043e \u0441\u043a\u0430\u0441\u0443\u0439\u0442\u0435.";
 
-    public string DeleteAllConfirmationPrompt => "Видалити всі підписки?";
+    public string DeleteAllConfirmationPrompt => "\u0412\u0438\u0434\u0430\u043b\u0438\u0442\u0438 \u0432\u0441\u0456 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438?";
 
-    public string DeleteAllConfirmationCallbackNotice => "Потрібне підтвердження.";
+    public string DeleteAllConfirmationCallbackNotice => "\u041f\u043e\u0442\u0440\u0456\u0431\u043d\u0435 \u043f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0436\u0435\u043d\u043d\u044f.";
 
-    public string RemoveUsage => "Використання: /remove <channel>";
+    public string DeleteOneConfirmationCallbackNotice => "\u041f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0456\u0442\u044c \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043d\u044f \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438.";
+
+    public string RemoveUsage => "\u0412\u0438\u043a\u043e\u0440\u0438\u0441\u0442\u0430\u043d\u043d\u044f: /remove <channel>";
 
     public string BuildSubscriptionDisabledMessage(string channelReference) =>
-        $"Підписку для {channelReference} вимкнено.";
+        $"\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u0434\u043b\u044f {channelReference} \u0432\u0438\u043c\u043a\u043d\u0435\u043d\u043e.";
 
     public string BuildSubscriptionAddedMessage(string channelReference) =>
-        $"Підписку додано: {channelReference}";
+        $"\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u0434\u043e\u0434\u0430\u043d\u043e: {channelReference}";
 
     public string BuildStartCallbackMessage(int resumedCount) =>
-        resumedCount > 0 ? $"Поновив {resumedCount} підписок." : "Активних змін немає. Бот уже працює.";
+        resumedCount > 0
+            ? $"\u041f\u043e\u043d\u043e\u0432\u0438\u0432 {resumedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
+            : "\u0410\u043a\u0442\u0438\u0432\u043d\u0438\u0445 \u0437\u043c\u0456\u043d \u043d\u0435\u043c\u0430\u0454. \u0411\u043e\u0442 \u0443\u0436\u0435 \u043f\u0440\u0430\u0446\u044e\u0454.";
 
-    public string PauseAppliedNotice => "Пауза застосована.";
+    public string StartCallbackNotice => "\u0413\u043e\u0442\u043e\u0432\u043e.";
+
+    public string PauseAppliedNotice => "\u041f\u0430\u0443\u0437\u0430 \u0437\u0430\u0441\u0442\u043e\u0441\u043e\u0432\u0430\u043d\u0430.";
 
     public string BuildPauseAppliedMessage(int pausedCount) =>
-        pausedCount > 0 ? $"Поставив на паузу {pausedCount} підписок." : "Активних підписок для паузи немає.";
+        pausedCount > 0
+            ? $"\u041f\u043e\u0441\u0442\u0430\u0432\u0438\u0432 \u043d\u0430 \u043f\u0430\u0443\u0437\u0443 {pausedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
+            : "\u0410\u043a\u0442\u0438\u0432\u043d\u0438\u0445 \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a \u0434\u043b\u044f \u043f\u0430\u0443\u0437\u0438 \u043d\u0435\u043c\u0430\u0454.";
 
-    public string DeletionCompletedNotice => "Видалення завершено.";
+    public string DeletionCompletedNotice => "\u0412\u0438\u0434\u0430\u043b\u0435\u043d\u043d\u044f \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u043e.";
 
     public string BuildDeleteAllAppliedMessage(int removedCount) =>
-        removedCount > 0 ? $"Видалено {removedCount} підписок." : "Немає підписок для видалення.";
+        removedCount > 0
+            ? $"\u0412\u0438\u0434\u0430\u043b\u0435\u043d\u043e {removedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
+            : "\u041d\u0435\u043c\u0430\u0454 \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a \u0434\u043b\u044f \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043d\u044f.";
 
-    public string ActionCancelledMessage => "Дію скасовано.";
+    public string ActionCancelledMessage => "\u0414\u0456\u044e \u0441\u043a\u0430\u0441\u043e\u0432\u0430\u043d\u043e.";
 
-    public string ActionCancelledNotice => "Скасовано.";
+    public string ActionCancelledNotice => "\u0421\u043a\u0430\u0441\u043e\u0432\u0430\u043d\u043e.";
 
-    public string UnknownActionMessage => "Невідома дія.";
+    public string UnknownActionMessage => "\u041d\u0435\u0432\u0456\u0434\u043e\u043c\u0430 \u0434\u0456\u044f.";
 
-    public string UnknownActionNotice => "Невідома дія.";
+    public string UnknownActionNotice => "\u041d\u0435\u0432\u0456\u0434\u043e\u043c\u0430 \u0434\u0456\u044f.";
 
-    public string InvalidSubscriptionMessage => "Не вдалося розпізнати підписку.";
+    public string InvalidSubscriptionMessage => "\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u0440\u043e\u0437\u043f\u0456\u0437\u043d\u0430\u0442\u0438 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0443.";
 
-    public string ErrorNotice => "Помилка.";
+    public string ErrorNotice => "\u041f\u043e\u043c\u0438\u043b\u043a\u0430.";
 
-    public string SubscriptionNotFoundMessage => "Підписку не знайдено.";
+    public string SubscriptionNotFoundMessage => "\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u043d\u0435 \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e.";
 
-    public string SubscriptionNotFoundNotice => "Не знайдено.";
+    public string SubscriptionNotFoundNotice => "\u041d\u0435 \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e.";
 
-    public string SubscriptionDeletedMessage => "Підписку видалено.";
+    public string SubscriptionDeletedMessage => "\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043e.";
 
-    public string SubscriptionDeletedNotice => "Видалено.";
+    public string SubscriptionDeletedNotice => "\u0412\u0438\u0434\u0430\u043b\u0435\u043d\u043e.";
 
     public string BuildDeleteOneConfirmationMessage(SubscriptionDto subscription) =>
-        $"Видалити підписку {subscription.ChannelName}?";
+        $"\u0412\u0438\u0434\u0430\u043b\u0438\u0442\u0438 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 {subscription.ChannelName}?";
 
-    public string EmptySubscriptionsMessage => "Підписок ще немає. Надішліть посилання на канал, щоб додати його.";
+    public string EmptySubscriptionsMessage => "\u041f\u0456\u0434\u043f\u0438\u0441\u043e\u043a \u0449\u0435 \u043d\u0435\u043c\u0430\u0454. \u041d\u0430\u0434\u0456\u0448\u043b\u0456\u0442\u044c \u043f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u043d\u0430 \u043a\u0430\u043d\u0430\u043b, \u0449\u043e\u0431 \u0434\u043e\u0434\u0430\u0442\u0438 \u0439\u043e\u0433\u043e.";
 
-    public string SubscriptionsListUpdatedNotice => "Список оновлено.";
+    public string SubscriptionsListUpdatedNotice => "\u0421\u043f\u0438\u0441\u043e\u043a \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e.";
 
     public string BuildSubscriptionsListMessage(IReadOnlyList<SubscriptionDto> subscriptions)
     {
         var lines = subscriptions
-            .Select((subscription, index) => $"{index + 1}. {(subscription.IsActive ? "🟢" : "⏸")} {subscription.ChannelName}")
+            .Select((subscription, index) => $"{index + 1}. {(subscription.IsActive ? GreenCircle : PauseIcon)} {subscription.ChannelName}")
             .ToList();
 
-        return "Ваші підписки:\n" + string.Join(Environment.NewLine, lines);
+        return "\u0412\u0430\u0448\u0456 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438:\n" + string.Join(Environment.NewLine, lines);
     }
 }

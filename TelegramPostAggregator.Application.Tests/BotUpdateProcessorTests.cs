@@ -45,6 +45,7 @@ public sealed class BotUpdateProcessorTests
 
         Assert.True(result.Success);
         Assert.Contains("Видалити підписку Test Channel?", result.Message);
+        Assert.Equal("Підтвердіть видалення підписки.", result.CallbackNotification);
         Assert.NotNull(result.ReplyMarkup);
         Assert.True(result.ReplyMarkup!.IsInline);
         Assert.Contains(result.ReplyMarkup.Buttons.SelectMany(x => x), button => button.CallbackData == $"delete_one:confirm:{channelId}");
@@ -63,6 +64,33 @@ public sealed class BotUpdateProcessorTests
         Assert.Equal("Підписок ще немає. Надішліть посилання на канал, щоб додати його.", result.Message);
         Assert.NotNull(result.ReplyMarkup);
         Assert.False(result.ReplyMarkup!.IsInline);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StopMenuCallback_ReturnsPauseNotice()
+    {
+        var processor = CreateProcessor(new FakeUserService(), new FakeChannelTrackingService());
+
+        var result = await processor.ProcessAsync(CreateUpdate(null, "menu:stop"));
+
+        Assert.True(result.Success);
+        Assert.Equal("Підтвердіть зупинку або скасуйте.", result.CallbackNotification);
+    }
+
+    [Fact]
+    public void BuildSubscriptionsListMessage_UsesReadableStatusIcons()
+    {
+        var messages = new BotMessageCatalog();
+        var subscriptions = new[]
+        {
+            new SubscriptionDto(Guid.NewGuid(), "Active Channel", "@active", "Active", true),
+            new SubscriptionDto(Guid.NewGuid(), "Paused Channel", "@paused", "Paused", false)
+        };
+
+        var result = messages.BuildSubscriptionsListMessage(subscriptions);
+
+        Assert.Contains("1. 🟢 Active Channel", result);
+        Assert.Contains("2. ⏸ Paused Channel", result);
     }
 
     private static BotUpdateProcessor CreateProcessor(IUserService userService, IChannelTrackingService trackingService) =>

@@ -92,7 +92,7 @@ public sealed class BotUpdateProcessor(
                 true,
                 messages.BuildStartCallbackMessage(resumedCount),
                 menuFactory.BuildMainMenu(),
-                "Готово.");
+                messages.StartCallbackNotice);
         }
 
         if (callbackData == "menu:stop")
@@ -101,7 +101,7 @@ public sealed class BotUpdateProcessor(
                 true,
                 messages.PauseConfirmationPrompt,
                 menuFactory.BuildPauseConfirmationMenu(),
-                messages.DeleteAllConfirmationCallbackNotice);
+                messages.PauseConfirmationCallbackNotice);
         }
 
         if (callbackData == "menu:delete_all")
@@ -174,7 +174,7 @@ public sealed class BotUpdateProcessor(
                 true,
                 messages.BuildDeleteOneConfirmationMessage(subscription),
                 menuFactory.BuildDeleteOneConfirmationMenu(subscription.ChannelId),
-                messages.DeleteAllConfirmationCallbackNotice);
+                messages.DeleteOneConfirmationCallbackNotice);
         }
 
         return new BotCommandResultDto(false, messages.UnknownActionMessage, menuFactory.BuildMainMenu(), messages.UnknownActionNotice);
