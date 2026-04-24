@@ -26,6 +26,17 @@ public sealed class TelegramFeedDeliveryService(
     private const int MediaCaptionLimit = 1024;
     private const string HtmlParseMode = "HTML";
     private static readonly TimeSpan AlbumStabilizationWindow = TimeSpan.FromSeconds(4);
+    private static readonly string[] EmptyMediaTextMarkers =
+    [
+        "(media post)",
+        "(photo post)",
+        "(video post)",
+        "(animation post)",
+        "(document post)",
+        "(audio post)",
+        "(voice message)",
+        "(no text)"
+    ];
     private readonly TelegramBotOptions _options = options.Value;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -116,8 +127,9 @@ public sealed class TelegramFeedDeliveryService(
 
                     var groupedPosts = CollectMediaGroupPosts(newPosts, index);
                     var deliveredPosts = groupedPosts.Count > 0 ? groupedPosts : [post];
+                    var contentSourcePost = await ResolveContentSourcePostAsync(postRepository, deliveredPosts, subscriptionToken);
                     var checkpointPost = deliveredPosts[^1];
-                    var response = await SendPostsAsync(subscription.User.TelegramUserId, deliveredPosts, subscriptionToken);
+                    var response = await SendPostsAsync(subscription.User.TelegramUserId, deliveredPosts, contentSourcePost, subscriptionToken);
 
                     if (response.IsSuccessStatusCode)
                     {
@@ -183,14 +195,15 @@ public sealed class TelegramFeedDeliveryService(
     private async Task<TelegramBotApiResultDto> SendPostsAsync(
         long chatId,
         IReadOnlyList<Domain.Entities.TelegramPost> posts,
+        Domain.Entities.TelegramPost contentSourcePost,
         CancellationToken cancellationToken)
     {
         var primaryPost = posts[0];
-        var channelUrl = ResolveChannelLink(primaryPost.Channel.UsernameOrInviteLink, primaryPost.OriginalPostUrl);
+        var channelUrl = ResolveChannelLink(contentSourcePost.Channel.UsernameOrInviteLink, contentSourcePost.OriginalPostUrl);
         var captionRender = TelegramPostMessageFormatter.FormatMediaDeliveryHtml(
-            primaryPost.Channel.ChannelName,
-            primaryPost.RawText,
-            primaryPost.OriginalPostUrl,
+            contentSourcePost.Channel.ChannelName,
+            contentSourcePost.RawText,
+            contentSourcePost.OriginalPostUrl,
             channelUrl);
 
         if (posts.Count > 1 && !string.IsNullOrWhiteSpace(posts[0].MediaGroupId))
@@ -211,9 +224,9 @@ public sealed class TelegramFeedDeliveryService(
 
         var post = primaryPost;
         var messageParts = TelegramPostMessageFormatter.FormatMessagePartsHtml(
-            post.Channel.ChannelName,
-            post.RawText,
-            post.OriginalPostUrl,
+            contentSourcePost.Channel.ChannelName,
+            contentSourcePost.RawText,
+            contentSourcePost.OriginalPostUrl,
             channelUrl);
         var metadata = ParseMetadata(post.MetadataJson);
 
@@ -435,6 +448,41 @@ public sealed class TelegramFeedDeliveryService(
         }
 
         return groupedPosts;
+    }
+
+    private static bool HasMeaningfulText(string? rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return false;
+        }
+
+        var normalized = rawText.Trim();
+        return !EmptyMediaTextMarkers.Any(marker => string.Equals(normalized, marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static Domain.Entities.TelegramPost SelectContentSourcePost(IReadOnlyList<Domain.Entities.TelegramPost> posts) =>
+        posts.FirstOrDefault(post => HasMeaningfulText(post.RawText)) ?? posts[0];
+
+    private static async Task<Domain.Entities.TelegramPost> ResolveContentSourcePostAsync(
+        IPostRepository postRepository,
+        IReadOnlyList<Domain.Entities.TelegramPost> posts,
+        CancellationToken cancellationToken)
+    {
+        var primaryPost = posts[0];
+        if (string.IsNullOrWhiteSpace(primaryPost.MediaGroupId))
+        {
+            return primaryPost;
+        }
+
+        var fullAlbumPosts = await postRepository.GetByChannelAndMediaGroupIdAsync(
+            primaryPost.ChannelId,
+            primaryPost.MediaGroupId,
+            cancellationToken);
+
+        return fullAlbumPosts.Count == 0
+            ? SelectContentSourcePost(posts)
+            : SelectContentSourcePost(fullAlbumPosts);
     }
 
     private static bool IsAlbumPostStillArriving(Domain.Entities.TelegramPost post) =>

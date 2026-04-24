@@ -9,6 +9,7 @@ public interface IPostRepository
     Task<TelegramPost?> GetByIdAsync(Guid postId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TelegramPost>> GetFeedForUserAsync(long telegramUserId, int take, int skip, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TelegramPost>> GetUndeliveredForChannelAsync(Guid channelId, long? lastDeliveredTelegramMessageId, int take, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<TelegramPost>> GetByChannelAndMediaGroupIdAsync(Guid channelId, string mediaGroupId, CancellationToken cancellationToken = default);
     Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default);
     Task AddAsync(TelegramPost post, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);

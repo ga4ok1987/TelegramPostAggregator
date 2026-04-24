@@ -52,6 +52,17 @@ public sealed class PostRepository(AggregatorDbContext dbContext) : IPostReposit
             .Take(take)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TelegramPost>> GetByChannelAndMediaGroupIdAsync(
+        Guid channelId,
+        string mediaGroupId,
+        CancellationToken cancellationToken = default) =>
+        await dbContext.TelegramPosts
+            .Include(x => x.Channel)
+            .Include(x => x.CollectorAccount)
+            .Where(x => x.ChannelId == channelId && x.MediaGroupId == mediaGroupId)
+            .OrderBy(x => x.TelegramMessageId)
+            .ToListAsync(cancellationToken);
+
     public async Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default) =>
         await dbContext.TelegramPosts
             .Where(x => x.ChannelId == channelId)
