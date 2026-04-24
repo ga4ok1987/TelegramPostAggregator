@@ -90,6 +90,28 @@ public sealed class BotUpdateProcessorTests
     }
 
     [Fact]
+    public async Task ListSubscriptionsAsync_FiltersReservedUiEntries()
+    {
+        var service = new ChannelTrackingService(
+            new FakeUserService("uk"),
+            new FakeTrackedChannelRepository(),
+            new FakeSubscriptionRepository(
+                [
+                    new SubscriptionDto(Guid.NewGuid(), "Real Channel", "https://t.me/real_channel", "Active", true),
+                    new SubscriptionDto(Guid.NewGuid(), "🇬🇧 english", "🇬🇧 English", "Pending", true)
+                ]),
+            new FakeCollectorAccountRepository(),
+            new FakePostRepository(),
+            new FakeChannelKeyNormalizer(),
+            new BotLocalizationCatalog());
+
+        var result = await service.ListSubscriptionsAsync(123);
+
+        Assert.Single(result);
+        Assert.Equal("Real Channel", result[0].ChannelName);
+    }
+
+    [Fact]
     public async Task ProcessAsync_DeleteOneCallback_ReturnsConfirmationForMatchingSubscription()
     {
         var channelId = Guid.NewGuid();
@@ -228,5 +250,76 @@ public sealed class BotUpdateProcessorTests
 
         public Task<IReadOnlyList<SubscriptionDto>> ListSubscriptionsAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult(Subscriptions);
+    }
+
+    private sealed class FakeTrackedChannelRepository : Abstractions.Repositories.ITrackedChannelRepository
+    {
+        public Task AddAsync(Domain.Entities.TrackedChannel channel, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<Domain.Entities.TrackedChannel?> GetByNormalizedKeyAsync(string normalizedKey, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TrackedChannel?>(null);
+        public Task<Domain.Entities.TrackedChannel?> GetByTelegramChannelIdAsync(string telegramChannelId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TrackedChannel?>(null);
+        public Task<Domain.Entities.TrackedChannel?> GetWithAssignmentsAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TrackedChannel?>(null);
+        public Task<IReadOnlyList<Domain.Entities.TrackedChannel>> GetChannelsForUserAsync(long telegramUserId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TrackedChannel>>([]);
+        public Task<IReadOnlyList<Domain.Entities.TrackedChannel>> GetChannelsByStatusAsync(Domain.Enums.ChannelTrackingStatus status, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TrackedChannel>>([]);
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeSubscriptionRepository(IReadOnlyList<SubscriptionDto> subscriptions) : Abstractions.Repositories.ISubscriptionRepository
+    {
+        public Task<Domain.Entities.UserChannelSubscription?> GetAsync(Guid userId, Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.UserChannelSubscription?>(null);
+        public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>(subscriptions.Select(ToEntity).ToList());
+        public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>([]);
+        public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>([]);
+        public Task AddAsync(Domain.Entities.UserChannelSubscription subscription, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Remove(Domain.Entities.UserChannelSubscription subscription) { }
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        private static Domain.Entities.UserChannelSubscription ToEntity(SubscriptionDto dto) =>
+            new()
+            {
+                ChannelId = dto.ChannelId,
+                IsActive = dto.IsActive,
+                Channel = new Domain.Entities.TrackedChannel
+                {
+                    Id = dto.ChannelId,
+                    ChannelName = dto.ChannelName,
+                    UsernameOrInviteLink = dto.ChannelReference,
+                    NormalizedChannelKey = dto.ChannelName.ToLowerInvariant(),
+                    Status = Domain.Enums.ChannelTrackingStatus.Active
+                },
+                User = new Domain.Entities.AppUser
+                {
+                    TelegramUserId = 123
+                }
+            };
+    }
+
+    private sealed class FakeCollectorAccountRepository : Abstractions.Repositories.ICollectorAccountRepository
+    {
+        public Task<Domain.Entities.CollectorAccount?> GetPrimaryAvailableAsync(CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.CollectorAccount?>(null);
+        public Task<Domain.Entities.CollectorAccount?> GetByIdAsync(Guid collectorAccountId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.CollectorAccount?>(null);
+        public Task<IReadOnlyList<Domain.Entities.ChannelCollectorAssignment>> GetPendingAssignmentsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.ChannelCollectorAssignment>>([]);
+        public Task<IReadOnlyList<Domain.Entities.ChannelCollectorAssignment>> GetAssignmentsForSynchronizationAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.ChannelCollectorAssignment>>([]);
+        public Task AddAsync(Domain.Entities.CollectorAccount collectorAccount, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddAssignmentAsync(Domain.Entities.ChannelCollectorAssignment assignment, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakePostRepository : Abstractions.Repositories.IPostRepository
+    {
+        public Task<Domain.Entities.TelegramPost?> GetByChannelAndMessageIdAsync(Guid channelId, long telegramMessageId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TelegramPost?>(null);
+        public Task<IReadOnlyDictionary<long, Domain.Entities.TelegramPost>> GetByChannelAndMessageIdsAsync(Guid channelId, IReadOnlyCollection<long> telegramMessageIds, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<long, Domain.Entities.TelegramPost>>(new Dictionary<long, Domain.Entities.TelegramPost>());
+        public Task<Domain.Entities.TelegramPost?> GetByIdAsync(Guid postId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TelegramPost?>(null);
+        public Task<IReadOnlyList<Domain.Entities.TelegramPost>> GetFeedForUserAsync(long telegramUserId, int take, int skip, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TelegramPost>>([]);
+        public Task<IReadOnlyList<Domain.Entities.TelegramPost>> GetUndeliveredForChannelAsync(Guid channelId, long? lastDeliveredTelegramMessageId, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TelegramPost>>([]);
+        public Task<IReadOnlyList<Domain.Entities.TelegramPost>> GetByChannelAndMediaGroupIdAsync(Guid channelId, string mediaGroupId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TelegramPost>>([]);
+        public Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<long?>(null);
+        public Task AddAsync(Domain.Entities.TelegramPost post, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeChannelKeyNormalizer : IChannelKeyNormalizer
+    {
+        public string Normalize(string input) => input.Trim().ToLowerInvariant();
     }
 }

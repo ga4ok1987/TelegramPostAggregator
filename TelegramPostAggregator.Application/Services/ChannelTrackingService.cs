@@ -12,7 +12,8 @@ public sealed class ChannelTrackingService(
     ISubscriptionRepository subscriptionRepository,
     ICollectorAccountRepository collectorAccountRepository,
     IPostRepository postRepository,
-    IChannelKeyNormalizer channelKeyNormalizer) : IChannelTrackingService
+    IChannelKeyNormalizer channelKeyNormalizer,
+    Bot.BotLocalizationCatalog localizationCatalog) : IChannelTrackingService
 {
     public async Task<ChannelDto> AddTrackedChannelAsync(AddTrackedChannelDto request, CancellationToken cancellationToken = default)
     {
@@ -146,13 +147,17 @@ public sealed class ChannelTrackingService(
     public async Task<IReadOnlyList<ChannelDto>> ListTrackedChannelsAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
         var channels = await trackedChannelRepository.GetChannelsForUserAsync(telegramUserId, cancellationToken);
-        return channels.Select(ToDto).ToList();
+        return channels
+            .Where(x => !IsReservedUiChannel(x.ChannelName, x.UsernameOrInviteLink))
+            .Select(ToDto)
+            .ToList();
     }
 
     public async Task<IReadOnlyList<SubscriptionDto>> ListSubscriptionsAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
         var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
         return subscriptions
+            .Where(x => !IsReservedUiChannel(x.Channel.ChannelName, x.Channel.UsernameOrInviteLink))
             .Select(x => new SubscriptionDto(
                 x.ChannelId,
                 x.Channel.ChannelName,
@@ -161,6 +166,9 @@ public sealed class ChannelTrackingService(
                 x.IsActive))
             .ToList();
     }
+
+    private bool IsReservedUiChannel(string channelName, string channelReference) =>
+        localizationCatalog.IsReservedUiText(channelName) || localizationCatalog.IsReservedUiText(channelReference);
 
     private static ChannelDto ToDto(TrackedChannel channel) =>
         new(channel.Id, channel.ChannelName, channel.UsernameOrInviteLink, channel.Status.ToString(), channel.LastPostCollectedAtUtc, channel.LastCollectorError);
