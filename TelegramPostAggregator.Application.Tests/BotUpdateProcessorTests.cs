@@ -59,6 +59,37 @@ public sealed class BotUpdateProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_PlainLanguageLabel_DoesNotBecomeSubscription()
+    {
+        var userService = new FakeUserService("uk");
+        var trackingService = new FakeChannelTrackingService();
+        var processor = CreateProcessor(userService, trackingService);
+
+        var result = await processor.ProcessAsync(CreateUpdate("Мова", "uk"));
+
+        Assert.True(result.Success);
+        Assert.Equal(0, trackingService.AddTrackedChannelCalls);
+        Assert.Contains("Оберіть мову", result.Message);
+        Assert.NotNull(result.ReplyMarkup);
+        Assert.True(result.ReplyMarkup!.IsInline);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_PlainLanguageName_ChangesLanguageInsteadOfAddingSubscription()
+    {
+        var userService = new FakeUserService("uk");
+        var trackingService = new FakeChannelTrackingService();
+        var processor = CreateProcessor(userService, trackingService);
+
+        var result = await processor.ProcessAsync(CreateUpdate("English", "uk"));
+
+        Assert.True(result.Success);
+        Assert.Equal(0, trackingService.AddTrackedChannelCalls);
+        Assert.Equal("en", userService.CurrentLanguageCode);
+        Assert.Contains("Language updated", result.Message);
+    }
+
+    [Fact]
     public async Task ProcessAsync_DeleteOneCallback_ReturnsConfirmationForMatchingSubscription()
     {
         var channelId = Guid.NewGuid();
@@ -161,11 +192,24 @@ public sealed class BotUpdateProcessorTests
     private sealed class FakeChannelTrackingService : IChannelTrackingService
     {
         public int SetSubscriptionsActiveResult { get; set; }
+        public int AddTrackedChannelCalls { get; private set; }
 
         public IReadOnlyList<SubscriptionDto> Subscriptions { get; init; } = [];
 
         public Task<ChannelDto> AddTrackedChannelAsync(AddTrackedChannelDto request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ChannelDto(Guid.NewGuid(), request.ChannelReference, request.ChannelReference, "Pending", null, null));
+            Task.FromResult(new ChannelDto(
+                AddTrackedChannel(request),
+                request.ChannelReference,
+                request.ChannelReference,
+                "Pending",
+                null,
+                null));
+
+        private Guid AddTrackedChannel(AddTrackedChannelDto request)
+        {
+            AddTrackedChannelCalls++;
+            return Guid.NewGuid();
+        }
 
         public Task RemoveTrackedChannelAsync(RemoveTrackedChannelDto request, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;

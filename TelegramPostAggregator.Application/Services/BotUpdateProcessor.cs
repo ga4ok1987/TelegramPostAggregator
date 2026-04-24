@@ -68,6 +68,26 @@ public sealed class BotUpdateProcessor(
                 messages.StartCallbackNotice(languageCode));
         }
 
+        if (localizationCatalog.TryResolveLanguageSelection(text, out var selectedLanguageCode))
+        {
+            var updatedUser = await userService.SetPreferredLanguageAsync(update.User.TelegramUserId, selectedLanguageCode, cancellationToken);
+            var updatedLanguageCode = localizationCatalog.NormalizeLanguageCode(updatedUser.PreferredLanguageCode);
+
+            return new BotCommandResultDto(
+                true,
+                messages.BuildLanguageUpdatedMessage(selectedLanguageCode, updatedLanguageCode),
+                menuFactory.BuildMainMenu(updatedLanguageCode),
+                messages.StartCallbackNotice(updatedLanguageCode));
+        }
+
+        if (localizationCatalog.IsReservedUiText(text))
+        {
+            return new BotCommandResultDto(
+                true,
+                messages.EmptyUpdatePrompt(languageCode),
+                menuFactory.BuildMainMenu(languageCode));
+        }
+
         if (text.StartsWith("/remove", StringComparison.OrdinalIgnoreCase))
         {
             var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);

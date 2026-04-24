@@ -466,10 +466,51 @@ public sealed class BotLocalizationCatalog
                 action = BotMainMenuAction.Language;
                 return true;
             }
+
+            if (string.Equals(text, locale.LanguageLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                action = BotMainMenuAction.Language;
+                return true;
+            }
         }
 
         action = BotMainMenuAction.None;
         return false;
+    }
+
+    public bool TryResolveLanguageSelection(string text, out string languageCode)
+    {
+        var normalized = NormalizeUiText(text);
+        foreach (var locale in Locales.Values)
+        {
+            var candidates = new[]
+            {
+                NormalizeUiText(locale.Name),
+                NormalizeUiText($"{locale.Flag} {locale.Name}"),
+                NormalizeUiText($"✓ {locale.Flag} {locale.Name}"),
+                NormalizeUiText($"✓ {locale.Name}")
+            };
+
+            if (candidates.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                languageCode = locale.Code;
+                return true;
+            }
+        }
+
+        languageCode = string.Empty;
+        return false;
+    }
+
+    public bool IsReservedUiText(string text)
+    {
+        if (TryResolveMainMenuAction(text, out _) || TryResolveLanguageSelection(text, out _))
+        {
+            return true;
+        }
+
+        return Locales.Values.Any(locale =>
+            string.Equals(NormalizeUiText(text), NormalizeUiText(locale.LanguageSelectionPrompt), StringComparison.OrdinalIgnoreCase));
     }
 
     public string BuildLanguageButtonLabel(string? languageCode)
@@ -477,6 +518,11 @@ public sealed class BotLocalizationCatalog
         var locale = GetLocale(languageCode);
         return $"{locale.Flag} {locale.LanguageLabel}";
     }
+
+    private static string NormalizeUiText(string value) =>
+        value
+            .Replace("✓", string.Empty, StringComparison.Ordinal)
+            .Trim();
 
     public sealed record BotLanguageOption(string Code, string Flag, string Name);
 
