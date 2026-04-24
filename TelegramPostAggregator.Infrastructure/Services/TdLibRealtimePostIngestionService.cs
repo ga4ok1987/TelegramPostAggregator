@@ -1,6 +1,8 @@
 using TdLib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Domain.Entities;
@@ -78,6 +80,13 @@ public sealed class TdLibRealtimePostIngestionService(
                 post.MediaGroupId);
 
             SignalDelivery(post.MediaGroupId);
+        }
+        catch (DbUpdateException exception) when (IsDuplicatePostInsert(exception))
+        {
+            logger.LogInformation(
+                "Realtime post {MessageId} for chat {ChatId} was already stored by another ingestion path. Skipping duplicate insert.",
+                message.Id,
+                message.ChatId);
         }
         catch (Exception exception)
         {
@@ -278,4 +287,9 @@ public sealed class TdLibRealtimePostIngestionService(
             // Best-effort permission fix for local Bot API file access.
         }
     }
+
+    private static bool IsDuplicatePostInsert(DbUpdateException exception) =>
+        exception.InnerException is PostgresException postgresException &&
+        postgresException.SqlState == PostgresErrorCodes.UniqueViolation &&
+        string.Equals(postgresException.ConstraintName, "IX_telegram_posts_ChannelId_TelegramMessageId", StringComparison.Ordinal);
 }
