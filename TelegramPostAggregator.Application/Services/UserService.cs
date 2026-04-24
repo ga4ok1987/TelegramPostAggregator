@@ -26,9 +26,20 @@ public sealed class UserService(IAppUserRepository userRepository) : IUserServic
         {
             user.TelegramUsername = snapshot.TelegramUsername;
             user.DisplayName = snapshot.DisplayName;
-            user.PreferredLanguageCode = string.IsNullOrWhiteSpace(snapshot.LanguageCode) ? user.PreferredLanguageCode : snapshot.LanguageCode!;
             user.UpdatedAtUtc = DateTimeOffset.UtcNow;
         }
+
+        await userRepository.SaveChangesAsync(cancellationToken);
+        return new UserDto(user.Id, user.TelegramUserId, user.TelegramUsername, user.DisplayName, user.PreferredLanguageCode);
+    }
+
+    public async Task<UserDto> SetPreferredLanguageAsync(long telegramUserId, string languageCode, CancellationToken cancellationToken = default)
+    {
+        var user = await userRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken)
+            ?? throw new InvalidOperationException($"Telegram user {telegramUserId} was not found.");
+
+        user.PreferredLanguageCode = languageCode;
+        user.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         await userRepository.SaveChangesAsync(cancellationToken);
         return new UserDto(user.Id, user.TelegramUserId, user.TelegramUsername, user.DisplayName, user.PreferredLanguageCode);

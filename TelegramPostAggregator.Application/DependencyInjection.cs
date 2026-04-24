@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<ICollectorCoordinator, CollectorCoordinator>();
         services.AddScoped<ICollectorAuthService, CollectorAuthService>();
         services.AddScoped<IBotUpdateProcessor, BotUpdateProcessor>();
+        services.AddSingleton<BotLocalizationCatalog>();
         services.AddSingleton<BotMenuFactory>();
         services.AddSingleton<BotMessageCatalog>();
 

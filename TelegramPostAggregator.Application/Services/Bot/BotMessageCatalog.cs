@@ -2,90 +2,135 @@ using TelegramPostAggregator.Application.DTOs;
 
 namespace TelegramPostAggregator.Application.Services.Bot;
 
-public sealed class BotMessageCatalog
+public sealed class BotMessageCatalog(BotLocalizationCatalog localizationCatalog)
 {
     private const string GreenCircle = "\U0001F7E2";
     private const string PauseIcon = "\u23F8";
 
-    public string EmptyUpdatePrompt => "\u041e\u0431\u0435\u0440\u0456\u0442\u044c \u0434\u0456\u044e \u0437 \u043c\u0435\u043d\u044e \u043d\u0438\u0436\u0447\u0435.";
+    public string EmptyUpdatePrompt(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).EmptyUpdatePrompt;
 
-    public string BuildStartMessage(int resumedCount) =>
-        resumedCount > 0
-            ? $"\u041f\u043e\u043d\u043e\u0432\u0438\u0432 {resumedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a. \u041d\u0430\u0434\u0456\u0448\u043b\u0456\u0442\u044c \u043f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u043d\u0430 Telegram-\u043a\u0430\u043d\u0430\u043b \u0430\u0431\u043e \u0432\u0456\u0434\u043a\u0440\u0438\u0439\u0442\u0435 \u0441\u043f\u0438\u0441\u043e\u043a \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
-            : "\u0411\u043e\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u0438\u0439. \u041d\u0430\u0434\u0456\u0448\u043b\u0456\u0442\u044c \u043f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u043d\u0430 Telegram-\u043a\u0430\u043d\u0430\u043b \u0430\u0431\u043e \u0432\u0456\u0434\u043a\u0440\u0438\u0439\u0442\u0435 \u0441\u043f\u0438\u0441\u043e\u043a \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a.";
-
-    public string PauseConfirmationPrompt => "\u041f\u043e\u0441\u0442\u0430\u0432\u0438\u0442\u0438 \u0432\u0441\u0456 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438 \u043d\u0430 \u043f\u0430\u0443\u0437\u0443?";
-
-    public string PauseConfirmationCallbackNotice => "\u041f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0456\u0442\u044c \u0437\u0443\u043f\u0438\u043d\u043a\u0443 \u0430\u0431\u043e \u0441\u043a\u0430\u0441\u0443\u0439\u0442\u0435.";
-
-    public string DeleteAllConfirmationPrompt => "\u0412\u0438\u0434\u0430\u043b\u0438\u0442\u0438 \u0432\u0441\u0456 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438?";
-
-    public string DeleteAllConfirmationCallbackNotice => "\u041f\u043e\u0442\u0440\u0456\u0431\u043d\u0435 \u043f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0436\u0435\u043d\u043d\u044f.";
-
-    public string DeleteOneConfirmationCallbackNotice => "\u041f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0456\u0442\u044c \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043d\u044f \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438.";
-
-    public string RemoveUsage => "\u0412\u0438\u043a\u043e\u0440\u0438\u0441\u0442\u0430\u043d\u043d\u044f: /remove <channel>";
-
-    public string BuildSubscriptionDisabledMessage(string channelReference) =>
-        $"\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u0434\u043b\u044f {channelReference} \u0432\u0438\u043c\u043a\u043d\u0435\u043d\u043e.";
-
-    public string BuildSubscriptionAddedMessage(string channelReference) =>
-        $"\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u0434\u043e\u0434\u0430\u043d\u043e: {channelReference}";
-
-    public string BuildStartCallbackMessage(int resumedCount) =>
-        resumedCount > 0
-            ? $"\u041f\u043e\u043d\u043e\u0432\u0438\u0432 {resumedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
-            : "\u0410\u043a\u0442\u0438\u0432\u043d\u0438\u0445 \u0437\u043c\u0456\u043d \u043d\u0435\u043c\u0430\u0454. \u0411\u043e\u0442 \u0443\u0436\u0435 \u043f\u0440\u0430\u0446\u044e\u0454.";
-
-    public string StartCallbackNotice => "\u0413\u043e\u0442\u043e\u0432\u043e.";
-
-    public string PauseAppliedNotice => "\u041f\u0430\u0443\u0437\u0430 \u0437\u0430\u0441\u0442\u043e\u0441\u043e\u0432\u0430\u043d\u0430.";
-
-    public string BuildPauseAppliedMessage(int pausedCount) =>
-        pausedCount > 0
-            ? $"\u041f\u043e\u0441\u0442\u0430\u0432\u0438\u0432 \u043d\u0430 \u043f\u0430\u0443\u0437\u0443 {pausedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
-            : "\u0410\u043a\u0442\u0438\u0432\u043d\u0438\u0445 \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a \u0434\u043b\u044f \u043f\u0430\u0443\u0437\u0438 \u043d\u0435\u043c\u0430\u0454.";
-
-    public string DeletionCompletedNotice => "\u0412\u0438\u0434\u0430\u043b\u0435\u043d\u043d\u044f \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u043e.";
-
-    public string BuildDeleteAllAppliedMessage(int removedCount) =>
-        removedCount > 0
-            ? $"\u0412\u0438\u0434\u0430\u043b\u0435\u043d\u043e {removedCount} \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a."
-            : "\u041d\u0435\u043c\u0430\u0454 \u043f\u0456\u0434\u043f\u0438\u0441\u043e\u043a \u0434\u043b\u044f \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043d\u044f.";
-
-    public string ActionCancelledMessage => "\u0414\u0456\u044e \u0441\u043a\u0430\u0441\u043e\u0432\u0430\u043d\u043e.";
-
-    public string ActionCancelledNotice => "\u0421\u043a\u0430\u0441\u043e\u0432\u0430\u043d\u043e.";
-
-    public string UnknownActionMessage => "\u041d\u0435\u0432\u0456\u0434\u043e\u043c\u0430 \u0434\u0456\u044f.";
-
-    public string UnknownActionNotice => "\u041d\u0435\u0432\u0456\u0434\u043e\u043c\u0430 \u0434\u0456\u044f.";
-
-    public string InvalidSubscriptionMessage => "\u041d\u0435 \u0432\u0434\u0430\u043b\u043e\u0441\u044f \u0440\u043e\u0437\u043f\u0456\u0437\u043d\u0430\u0442\u0438 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0443.";
-
-    public string ErrorNotice => "\u041f\u043e\u043c\u0438\u043b\u043a\u0430.";
-
-    public string SubscriptionNotFoundMessage => "\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u043d\u0435 \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e.";
-
-    public string SubscriptionNotFoundNotice => "\u041d\u0435 \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e.";
-
-    public string SubscriptionDeletedMessage => "\u041f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043e.";
-
-    public string SubscriptionDeletedNotice => "\u0412\u0438\u0434\u0430\u043b\u0435\u043d\u043e.";
-
-    public string BuildDeleteOneConfirmationMessage(SubscriptionDto subscription) =>
-        $"\u0412\u0438\u0434\u0430\u043b\u0438\u0442\u0438 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0443 {subscription.ChannelName}?";
-
-    public string EmptySubscriptionsMessage => "\u041f\u0456\u0434\u043f\u0438\u0441\u043e\u043a \u0449\u0435 \u043d\u0435\u043c\u0430\u0454. \u041d\u0430\u0434\u0456\u0448\u043b\u0456\u0442\u044c \u043f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u043d\u0430 \u043a\u0430\u043d\u0430\u043b, \u0449\u043e\u0431 \u0434\u043e\u0434\u0430\u0442\u0438 \u0439\u043e\u0433\u043e.";
-
-    public string SubscriptionsListUpdatedNotice => "\u0421\u043f\u0438\u0441\u043e\u043a \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e.";
-
-    public string BuildSubscriptionsListMessage(IReadOnlyList<SubscriptionDto> subscriptions)
+    public string BuildStartMessage(int resumedCount, string languageCode)
     {
+        var locale = localizationCatalog.GetLocale(languageCode);
+        return resumedCount > 0
+            ? string.Format(locale.StartMessageWithResumedTemplate, resumedCount)
+            : locale.StartMessageWithoutResumed;
+    }
+
+    public string PauseConfirmationPrompt(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).PauseConfirmationPrompt;
+
+    public string PauseConfirmationCallbackNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).PauseConfirmationCallbackNotice;
+
+    public string DeleteAllConfirmationPrompt(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).DeleteAllConfirmationPrompt;
+
+    public string DeleteAllConfirmationCallbackNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).DeleteAllConfirmationCallbackNotice;
+
+    public string DeleteOneConfirmationCallbackNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).DeleteOneConfirmationCallbackNotice;
+
+    public string RemoveUsage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).RemoveUsage;
+
+    public string BuildSubscriptionDisabledMessage(string channelReference, string languageCode) =>
+        string.Format(localizationCatalog.GetLocale(languageCode).SubscriptionDisabledTemplate, channelReference);
+
+    public string BuildSubscriptionAddedMessage(string channelReference, string languageCode) =>
+        string.Format(localizationCatalog.GetLocale(languageCode).SubscriptionAddedTemplate, channelReference);
+
+    public string BuildStartCallbackMessage(int resumedCount, string languageCode)
+    {
+        var locale = localizationCatalog.GetLocale(languageCode);
+        return resumedCount > 0
+            ? string.Format(locale.StartCallbackWithResumedTemplate, resumedCount)
+            : locale.StartCallbackWithoutChanges;
+    }
+
+    public string StartCallbackNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).StartCallbackNotice;
+
+    public string PauseAppliedNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).PauseAppliedNotice;
+
+    public string BuildPauseAppliedMessage(int pausedCount, string languageCode)
+    {
+        var locale = localizationCatalog.GetLocale(languageCode);
+        return pausedCount > 0
+            ? string.Format(locale.PauseAppliedTemplate, pausedCount)
+            : locale.PauseAppliedWithoutChanges;
+    }
+
+    public string DeletionCompletedNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).DeletionCompletedNotice;
+
+    public string BuildDeleteAllAppliedMessage(int removedCount, string languageCode)
+    {
+        var locale = localizationCatalog.GetLocale(languageCode);
+        return removedCount > 0
+            ? string.Format(locale.DeleteAllAppliedTemplate, removedCount)
+            : locale.DeleteAllAppliedWithoutChanges;
+    }
+
+    public string ActionCancelledMessage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).ActionCancelledMessage;
+
+    public string ActionCancelledNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).ActionCancelledNotice;
+
+    public string UnknownActionMessage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).UnknownActionMessage;
+
+    public string UnknownActionNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).UnknownActionNotice;
+
+    public string InvalidSubscriptionMessage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).InvalidSubscriptionMessage;
+
+    public string ErrorNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).ErrorNotice;
+
+    public string SubscriptionNotFoundMessage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).SubscriptionNotFoundMessage;
+
+    public string SubscriptionNotFoundNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).SubscriptionNotFoundNotice;
+
+    public string SubscriptionDeletedMessage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).SubscriptionDeletedMessage;
+
+    public string SubscriptionDeletedNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).SubscriptionDeletedNotice;
+
+    public string BuildDeleteOneConfirmationMessage(SubscriptionDto subscription, string languageCode) =>
+        string.Format(localizationCatalog.GetLocale(languageCode).DeleteOneConfirmationTemplate, subscription.ChannelName);
+
+    public string EmptySubscriptionsMessage(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).EmptySubscriptionsMessage;
+
+    public string SubscriptionsListUpdatedNotice(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).SubscriptionsListUpdatedNotice;
+
+    public string LanguageSelectionPrompt(string languageCode) =>
+        localizationCatalog.GetLocale(languageCode).LanguageSelectionPrompt;
+
+    public string BuildLanguageUpdatedMessage(string selectedLanguageCode, string currentLanguageCode)
+    {
+        var locale = localizationCatalog.GetLocale(currentLanguageCode);
+        var selected = localizationCatalog.GetLocale(selectedLanguageCode);
+        return string.Format(locale.LanguageUpdatedTemplate, $"{selected.Flag} {selected.Name}");
+    }
+
+    public string BuildSubscriptionsListMessage(IReadOnlyList<SubscriptionDto> subscriptions, string languageCode)
+    {
+        var locale = localizationCatalog.GetLocale(languageCode);
         var lines = subscriptions
             .Select((subscription, index) => $"{index + 1}. {(subscription.IsActive ? GreenCircle : PauseIcon)} {subscription.ChannelName}")
             .ToList();
 
-        return "\u0412\u0430\u0448\u0456 \u043f\u0456\u0434\u043f\u0438\u0441\u043a\u0438:\n" + string.Join(Environment.NewLine, lines);
+        return locale.SubscriptionsListTitle + "\n" + string.Join(Environment.NewLine, lines);
     }
 }
