@@ -136,6 +136,27 @@ public sealed class BotUpdateProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_ListCommand_DoesNotShowLanguageButtonInSubscriptionsMenu()
+    {
+        var userService = new FakeUserService("en");
+        var trackingService = new FakeChannelTrackingService
+        {
+            Subscriptions =
+            [
+                new SubscriptionDto(Guid.NewGuid(), "Test Channel", "@test_channel", "Active", true)
+            ]
+        };
+        var processor = CreateProcessor(userService, trackingService);
+
+        var result = await processor.ProcessAsync(CreateUpdate("/list", "en"));
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.ReplyMarkup);
+        Assert.DoesNotContain(result.ReplyMarkup!.Buttons.SelectMany(x => x), button => button.CallbackData == "menu:language");
+        Assert.DoesNotContain(result.ReplyMarkup.Buttons.SelectMany(x => x), button => button.Text.Contains("Language", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ProcessAsync_ListCommand_WithoutSubscriptions_ReturnsLocalizedEmptyState()
     {
         var userService = new FakeUserService("fr");

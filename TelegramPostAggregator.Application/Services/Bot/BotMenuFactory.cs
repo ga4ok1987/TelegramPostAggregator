@@ -59,7 +59,6 @@ public sealed class BotMenuFactory(BotLocalizationCatalog localizationCatalog)
         buttons.Add([new BotButtonDto(locale.RefreshListLabel, "menu:list")]);
         buttons.Add([new BotButtonDto(locale.PauseAllLabel, "menu:stop")]);
         buttons.Add([new BotButtonDto(locale.DeleteAllLabel, "menu:delete_all")]);
-        buttons.Add([new BotButtonDto(localizationCatalog.BuildLanguageButtonLabel(languageCode), "menu:language")]);
 
         return new BotReplyMarkupDto(buttons, IsInline: true);
     }
