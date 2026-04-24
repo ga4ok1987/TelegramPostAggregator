@@ -150,18 +150,53 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var client = await GetAuthorizedClientAsync(collectorAccount, cancellationToken);
-        var downloaded = await client.ExecuteAsync(new TdApi.DownloadFile
+        try
         {
-            FileId = fileId,
-            Priority = 16,
-            Offset = 0,
-            Limit = 0,
-            Synchronous = true
+            return await DownloadFileAndGetPathAsync(client, fileId, cancellationToken);
+        }
+        catch (Exception exception) when (exception.Message.Contains("File not found", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "TDLib file {FileId} is no longer available for collector {CollectorAccountKey}.",
+                fileId,
+                collectorAccount.ExternalAccountKey);
+            return null;
+        }
+    }
+
+    public async Task<string?> DownloadMessageMediaAndGetPathAsync(
+        CollectorAccount collectorAccount,
+        long chatId,
+        long messageId,
+        string? mediaKind,
+        CancellationToken cancellationToken)
+    {
+        var client = await GetAuthorizedClientAsync(collectorAccount, cancellationToken);
+        var message = await client.ExecuteAsync(new TdApi.GetMessage
+        {
+            ChatId = chatId,
+            MessageId = messageId
         });
 
-        return downloaded.Local.IsDownloadingCompleted && !string.IsNullOrWhiteSpace(downloaded.Local.Path)
-            ? downloaded.Local.Path
-            : null;
+        var fileId = ResolveMediaFileId(message.Content, mediaKind);
+        if (fileId is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await DownloadFileAndGetPathAsync(client, fileId.Value, cancellationToken);
+        }
+        catch (Exception exception) when (exception.Message.Contains("File not found", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "TDLib message media is missing for chat {ChatId}, message {MessageId}, collector {CollectorAccountKey}.",
+                chatId,
+                messageId,
+                collectorAccount.ExternalAccountKey);
+            return null;
+        }
     }
 
     private async Task<CollectorRuntime> GetOrCreateRuntimeAsync(CollectorAccount collectorAccount, CancellationToken cancellationToken)
@@ -343,6 +378,55 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
         }
 
         return normalized;
+    }
+
+    private static int? ResolveMediaFileId(TdApi.MessageContent content, string? mediaKind) =>
+        content switch
+        {
+            TdApi.MessageContent.MessagePhoto photo when string.Equals(mediaKind, "photo", StringComparison.OrdinalIgnoreCase) =>
+                photo.Photo.Sizes.OrderByDescending(size => size.Width * size.Height).FirstOrDefault()?.Photo?.Id,
+            TdApi.MessageContent.MessageVideo video when string.Equals(mediaKind, "video", StringComparison.OrdinalIgnoreCase) =>
+                video.Video.Video_.Id,
+            _ => null
+        };
+
+    private static async Task<string?> DownloadFileAndGetPathAsync(TdClient client, int fileId, CancellationToken cancellationToken)
+    {
+        var downloaded = await client.ExecuteAsync(new TdApi.DownloadFile
+        {
+            FileId = fileId,
+            Priority = 16,
+            Offset = 0,
+            Limit = 0,
+            Synchronous = true
+        });
+
+        if (!downloaded.Local.IsDownloadingCompleted || string.IsNullOrWhiteSpace(downloaded.Local.Path))
+        {
+            return null;
+        }
+
+        EnsureWorldReadable(downloaded.Local.Path);
+        return downloaded.Local.Path;
+    }
+
+    private static void EnsureWorldReadable(string path)
+    {
+        try
+        {
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            {
+                File.SetUnixFileMode(
+                    path,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                    UnixFileMode.GroupRead |
+                    UnixFileMode.OtherRead);
+            }
+        }
+        catch
+        {
+            // Best-effort permission fix for local Bot API file access.
+        }
     }
 
     public async ValueTask DisposeAsync()

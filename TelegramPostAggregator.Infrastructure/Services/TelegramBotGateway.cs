@@ -64,20 +64,6 @@ public sealed class TelegramBotGateway(
             return null;
         }
 
-        if (_options.UseLocalBotApiFileTransport && message.Items.All(item => File.Exists(item.FilePath)))
-        {
-            var mediaPayload = message.Items.Select(item => CreateMediaPayload(item, new Uri(item.FilePath).AbsoluteUri)).ToArray();
-
-            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["chat_id"] = message.ChatId.ToString(),
-                ["media"] = JsonSerializer.Serialize(mediaPayload)
-            });
-
-            using var response = await CreateClient().PostAsync("sendMediaGroup", content, cancellationToken);
-            return await ToResultAsync(response, cancellationToken);
-        }
-
         var streams = new List<Stream>();
 
         try
@@ -131,20 +117,6 @@ public sealed class TelegramBotGateway(
         TelegramBotMediaMessageDto message,
         CancellationToken cancellationToken)
     {
-        if (_options.UseLocalBotApiFileTransport && File.Exists(message.FilePath))
-        {
-            using var localContent = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["chat_id"] = message.ChatId.ToString(),
-                [fieldName] = new Uri(message.FilePath).AbsoluteUri,
-                ["caption"] = message.Caption,
-                ["parse_mode"] = message.ParseMode ?? string.Empty
-            });
-
-            using var localResponse = await CreateClient().PostAsync(endpoint, localContent, cancellationToken);
-            return await ToResultAsync(localResponse, cancellationToken);
-        }
-
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(message.ChatId.ToString()), "chat_id");
         content.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");

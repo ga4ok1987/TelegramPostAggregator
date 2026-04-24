@@ -8,6 +8,7 @@ public sealed class PostMediaMetadata
     public long MessageId { get; set; }
     public string ContentType { get; set; } = string.Empty;
     public string? MediaKind { get; set; }
+    public int? MediaFileId { get; set; }
     public string? MediaLocalPath { get; set; }
 
     public static string Serialize(PostMediaMetadata metadata) =>

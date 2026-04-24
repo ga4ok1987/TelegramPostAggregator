@@ -213,6 +213,7 @@ public sealed class TdLibRealtimePostIngestionService(
         {
             case TdApi.MessageContent.MessagePhoto photo:
                 metadata.MediaKind = "photo";
+                metadata.MediaFileId = photo.Photo.Sizes.OrderByDescending(size => size.Width * size.Height).FirstOrDefault()?.Photo?.Id;
                 metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(
                     client,
                     photo.Photo.Sizes.OrderByDescending(size => size.Width * size.Height).FirstOrDefault()?.Photo,
@@ -220,6 +221,7 @@ public sealed class TdLibRealtimePostIngestionService(
                 break;
             case TdApi.MessageContent.MessageVideo video:
                 metadata.MediaKind = "video";
+                metadata.MediaFileId = video.Video.Video_.Id;
                 metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, video.Video.Video_, cancellationToken);
                 break;
         }

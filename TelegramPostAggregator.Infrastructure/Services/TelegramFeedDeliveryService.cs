@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Encodings.Web;
-using System.Text.Json;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.DTOs;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +9,7 @@ using Microsoft.Extensions.Options;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Infrastructure.Options;
+using TelegramPostAggregator.Infrastructure.Models;
 
 namespace TelegramPostAggregator.Infrastructure.Services;
 
@@ -69,6 +69,7 @@ public sealed class TelegramFeedDeliveryService(
         var subscriptions = await subscriptionRepository.GetActiveForDeliveryAsync(_options.DeliveryBatchSize, cancellationToken);
         foreach (var subscription in subscriptions)
         {
+            Domain.Entities.TelegramPost? currentPost = null;
             try
             {
                 using var subscriptionTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -107,6 +108,7 @@ public sealed class TelegramFeedDeliveryService(
                     subscriptionToken.ThrowIfCancellationRequested();
 
                     var post = newPosts[index];
+                    currentPost = post;
                     if (IsAlbumPostStillArriving(post))
                     {
                         break;
@@ -169,7 +171,7 @@ public sealed class TelegramFeedDeliveryService(
                     subscription.User.TelegramUserId);
                 await errorAlertService.SendAsync(
                     "Failed to deliver posts",
-                    $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}",
+                    BuildDeliveryAlertMessage(subscription, currentPost),
                     exception,
                     cancellationToken);
             }
@@ -301,7 +303,7 @@ public sealed class TelegramFeedDeliveryService(
 
     private async Task<string?> EnsureMediaLocalPathAsync(
         Domain.Entities.TelegramPost post,
-        PostMetadata metadata,
+        PostMediaMetadata metadata,
         CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(metadata.MediaLocalPath) && File.Exists(metadata.MediaLocalPath))
@@ -309,30 +311,23 @@ public sealed class TelegramFeedDeliveryService(
             return metadata.MediaLocalPath;
         }
 
-        if (metadata.MediaFileId is null)
+        if (await TryDownloadStoredMediaAsync(post, metadata, cancellationToken) is { } downloadedPath)
         {
-            return null;
+            return downloadedPath;
         }
 
-        return await tdLibCollectorClientManager.DownloadFileAndGetPathAsync(
+        return await tdLibCollectorClientManager.DownloadMessageMediaAndGetPathAsync(
             post.CollectorAccount,
-            metadata.MediaFileId.Value,
+            metadata.ChatId,
+            metadata.MessageId,
+            metadata.MediaKind,
             cancellationToken);
     }
 
-    private static PostMetadata? ParseMetadata(string metadataJson)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<PostMetadata>(metadataJson);
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    private static PostMediaMetadata? ParseMetadata(string metadataJson) =>
+        PostMediaMetadata.Deserialize(metadataJson);
 
-    private static bool IsIgnorablePost(Domain.Entities.TelegramPost post, PostMetadata? metadata)
+    private static bool IsIgnorablePost(Domain.Entities.TelegramPost post, PostMediaMetadata? metadata)
     {
         if (!string.IsNullOrWhiteSpace(metadata?.ContentType) &&
             metadata.ContentType.StartsWith("messageGiveaway", StringComparison.Ordinal))
@@ -463,9 +458,61 @@ public sealed class TelegramFeedDeliveryService(
 
         await errorAlertService.SendAsync(
             "Telegram delivery failed",
-            $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}\nPostId: {post.Id}\nStatusCode: {(int)response.StatusCode}\nResponse: {responseBody}",
+            BuildDeliveryAlertMessage(subscription, post, (int)response.StatusCode, responseBody),
             cancellationToken: cancellationToken);
         return false;
+    }
+
+    private async Task<string?> TryDownloadStoredMediaAsync(
+        Domain.Entities.TelegramPost post,
+        PostMediaMetadata metadata,
+        CancellationToken cancellationToken)
+    {
+        if (metadata.MediaFileId is null)
+        {
+            return null;
+        }
+
+        return await tdLibCollectorClientManager.DownloadFileAndGetPathAsync(
+            post.CollectorAccount,
+            metadata.MediaFileId.Value,
+            cancellationToken);
+    }
+
+    private static string BuildDeliveryAlertMessage(
+        Domain.Entities.UserChannelSubscription subscription,
+        Domain.Entities.TelegramPost? post,
+        int? statusCode = null,
+        string? responseBody = null)
+    {
+        var lines = new List<string>
+        {
+            $"SubscriptionId: {subscription.Id}",
+            $"ChatId: {subscription.User.TelegramUserId}"
+        };
+
+        if (post is not null)
+        {
+            lines.Add($"PostId: {post.Id}");
+            lines.Add($"TelegramMessageId: {post.TelegramMessageId}");
+
+            if (!string.IsNullOrWhiteSpace(post.OriginalPostUrl))
+            {
+                lines.Add($"OriginalPostUrl: {post.OriginalPostUrl}");
+            }
+        }
+
+        if (statusCode.HasValue)
+        {
+            lines.Add($"StatusCode: {statusCode.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(responseBody))
+        {
+            lines.Add($"Response: {responseBody}");
+        }
+
+        return string.Join('\n', lines);
     }
 
     private static bool IsUnrecoverableClientError(HttpStatusCode statusCode, string responseBody)
@@ -488,13 +535,4 @@ public sealed class TelegramFeedDeliveryService(
                body.Contains("have no rights to send", StringComparison.Ordinal);
     }
 
-    private sealed class PostMetadata
-    {
-        public long ChatId { get; set; }
-        public long MessageId { get; set; }
-        public string ContentType { get; set; } = string.Empty;
-        public string? MediaKind { get; set; }
-        public int? MediaFileId { get; set; }
-        public string? MediaLocalPath { get; set; }
-    }
 }
