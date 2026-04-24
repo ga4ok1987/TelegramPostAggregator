@@ -1,0 +1,27 @@
+[Unit]
+Description=Channels monitoring website
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/channels-monitoring
+ExecStart=/usr/bin/dotnet /opt/channels-monitoring/TelegramPostAggregator.Monitoring.Web.dll
+Restart=always
+RestartSec=5
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5180
+Environment=Authentication__Google__ClientId=PUT_GOOGLE_CLIENT_ID_HERE
+Environment=Authentication__Google__ClientSecret=PUT_GOOGLE_CLIENT_SECRET_HERE
+Environment=BotMonitoring__AllowedEmail=hachkevych.serhii@gmail.com
+Environment=BotMonitoring__Bots__0__Id=channels-monitor-bot
+Environment=BotMonitoring__Bots__0__DisplayName=channelsMonitorBot
+Environment=BotMonitoring__Bots__0__Description=Telegram bot that tracks channels and pushes updates to users.
+Environment=BotMonitoring__Bots__0__ProbeType=heartbeat
+Environment=BotMonitoring__Bots__0__HeartbeatFilePath=/var/run/channels-monitor/channels-monitor.heartbeat
+Environment=BotMonitoring__Bots__0__StaleAfterSeconds=180
+Environment=BotMonitoring__Bots__0__Tags__0=telegram
+Environment=BotMonitoring__Bots__0__Tags__1=channels
+
+[Install]
+WantedBy=multi-user.target

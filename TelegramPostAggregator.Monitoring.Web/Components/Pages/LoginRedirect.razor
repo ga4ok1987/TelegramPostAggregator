@@ -1,0 +1,39 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Components
+
+<PageTitle>Sign in</PageTitle>
+
+<section class="hero-panel narrow">
+    <p class="eyebrow">Access required</p>
+    <h2>Sign in</h2>
+    <p class="hero-copy">
+        Use your monitoring credentials to access the dashboard.
+    </p>
+
+    @if (HasError)
+    {
+        <div class="status-banner error-banner">
+            Invalid username or password.
+        </div>
+    }
+
+    <form method="post" action="/auth/login" class="login-form">
+        <input type="hidden" name="returnUrl" value="/" />
+
+        <label class="form-label" for="username">Username</label>
+        <input class="form-input" id="username" name="username" type="text" autocomplete="username" required />
+
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" id="password" name="password" type="password" autocomplete="current-password" required />
+
+        <button class="primary-link submit-button" type="submit">Sign in</button>
+    </form>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorFlag { get; set; }
+
+    private bool HasError => !string.IsNullOrWhiteSpace(ErrorFlag);
+}

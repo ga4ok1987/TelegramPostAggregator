@@ -1,0 +1,27 @@
+@inherits LayoutComponentBase
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <p class="eyebrow">Bot Monitoring</p>
+            <h1>Control Center</h1>
+        </div>
+        <AuthorizeView Context="authState">
+            <Authorized>
+                <div class="user-panel">
+                    <span>@(authState.User.Identity?.Name ?? authState.User.FindFirstValue(ClaimTypes.Email))</span>
+                    <a class="signout-link" href="/auth/logout">Sign out</a>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <a class="signin-link" href="/login">Sign in</a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </header>
+
+    <main class="content-area">
+        @Body
+    </main>
+</div>

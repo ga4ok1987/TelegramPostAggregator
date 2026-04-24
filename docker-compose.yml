@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: telegram-post-aggregator-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: telegram_post_aggregator
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d telegram_post_aggregator"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram-post-aggregator-bot-api
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${BOT_API_TELEGRAM_API_ID:-0}
+      TELEGRAM_API_HASH: ${BOT_API_TELEGRAM_API_HASH:-}
+      TELEGRAM_LOCAL: 1
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+      - tdlib-files:/var/lib/telegram-post-aggregator/tdlib-files
+
+  api:
+    build:
+      context: .
+      dockerfile: TelegramPostAggregator.Api/Dockerfile
+    container_name: telegram-post-aggregator-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      telegram-bot-api:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__ConnectionString: Host=postgres;Port=5432;Database=telegram_post_aggregator;Username=postgres;Password=postgres
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=telegram_post_aggregator;Username=postgres;Password=postgres
+      TelegramBot__BotToken: ${BOT_TOKEN:-}
+      TelegramBot__BotUsername: ${BOT_USERNAME:-ChannelsMonitorBot}
+      TelegramBot__LocalBotApiBaseUrl: ${LOCAL_BOT_API_BASE_URL:-http://telegram-bot-api:8081}
+      TelegramBot__AlertChatId: ${ALERT_CHAT_ID:-}
+      Collector__UseTdLibSimulation: ${TDLIB_USE_SIMULATION:-true}
+      CollectorBootstrap__Name: primary-collector
+      CollectorBootstrap__ExternalAccountKey: collector-1
+      CollectorBootstrap__PhoneNumber: ${COLLECTOR_PHONE_NUMBER:-}
+      TdLib__DatabaseDirectory: /var/lib/telegram-post-aggregator/tdlib-data
+      TdLib__FilesDirectory: /var/lib/telegram-post-aggregator/tdlib-files
+      TdLib__UseSimulation: ${TDLIB_USE_SIMULATION:-true}
+      TdLib__ApiId: ${TDLIB_API_ID:-0}
+      TdLib__ApiHash: ${TDLIB_API_HASH:-}
+      TdLib__PhoneNumber: ${COLLECTOR_PHONE_NUMBER:-}
+      TdLib__DeviceModel: TelegramPostAggregatorDocker
+      TdLib__SystemVersion: Debian
+      TdLib__ApplicationVersion: 1.0.0
+      TdLib__SystemLanguageCode: en
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - tdlib-data:/var/lib/telegram-post-aggregator/tdlib-data
+      - tdlib-files:/var/lib/telegram-post-aggregator/tdlib-files
+
+volumes:
+  postgres-data:
+  tdlib-data:
+  tdlib-files:
+  telegram-bot-api-data:

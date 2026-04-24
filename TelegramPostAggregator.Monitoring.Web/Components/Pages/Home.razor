@@ -1,0 +1,164 @@
+@page "/"
+@implements IDisposable
+@attribute [Authorize]
+@inject ViewModels.DashboardViewModel ViewModel
+
+<PageTitle>Bot Monitoring</PageTitle>
+
+<section class="hero-panel">
+    <div>
+        <p class="eyebrow">Operations dashboard</p>
+        <h2>Monitor all of your bots in one place</h2>
+        <p class="hero-copy">
+            The dashboard shows live bot status, the latest successful check, response latency, and error details.
+        </p>
+    </div>
+    <button class="refresh-button" @onclick="RefreshAsync" disabled="@ViewModel.IsLoading">
+        @(ViewModel.IsLoading ? "Refreshing..." : "Refresh now")
+    </button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+{
+    <section class="status-banner error-banner">
+        <strong>Dashboard loading failed.</strong>
+        <span>@ViewModel.ErrorMessage</span>
+    </section>
+}
+else if (ViewModel.Dashboard is null)
+{
+    <section class="status-banner">
+        Loading bot status...
+    </section>
+}
+else
+{
+    <section class="summary-grid">
+        <article class="summary-card">
+            <span class="summary-label">Bots</span>
+            <strong>@ViewModel.Dashboard.Bots.Count</strong>
+        </article>
+        <article class="summary-card">
+            <span class="summary-label">Healthy</span>
+            <strong>@ViewModel.Dashboard.Bots.Count(bot => bot.State == BotHealthState.Healthy)</strong>
+        </article>
+        <article class="summary-card">
+            <span class="summary-label">Attention</span>
+            <strong>@ViewModel.Dashboard.Bots.Count(bot => bot.State is BotHealthState.Degraded or BotHealthState.Offline)</strong>
+        </article>
+        <article class="summary-card">
+            <span class="summary-label">Refresh</span>
+            <strong>@ViewModel.Dashboard.RefreshIntervalSeconds s</strong>
+        </article>
+    </section>
+
+    <section class="bots-grid">
+        @foreach (var bot in ViewModel.Dashboard.Bots)
+        {
+            <article class="bot-card @GetStateCss(bot.State)">
+                <div class="bot-card-header">
+                    <div>
+                        <div class="state-pill @GetStateCss(bot.State)">@GetStateLabel(bot.State)</div>
+                        <h3>@bot.DisplayName</h3>
+                    </div>
+                    <span class="probe-label">@bot.ProbeType</span>
+                </div>
+
+                <p class="bot-description">@bot.Description</p>
+
+                <dl class="bot-metadata">
+                    <div>
+                        <dt>Summary</dt>
+                        <dd>@bot.Summary</dd>
+                    </div>
+                    <div>
+                        <dt>Target</dt>
+                        <dd>@(bot.Target ?? "Not configured")</dd>
+                    </div>
+                    <div>
+                        <dt>Checked</dt>
+                        <dd>@bot.CheckedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                    </div>
+                    <div>
+                        <dt>Last success</dt>
+                        <dd>@(bot.LastSuccessAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "No successful checks yet")</dd>
+                    </div>
+                    <div>
+                        <dt>Latency</dt>
+                        <dd>@(bot.ResponseTime is null ? "n/a" : $"{bot.ResponseTime.Value.TotalMilliseconds:F0} ms")</dd>
+                    </div>
+                    <div>
+                        <dt>Tags</dt>
+                        <dd>@string.Join(", ", bot.Tags)</dd>
+                    </div>
+                </dl>
+
+                @if (!string.IsNullOrWhiteSpace(bot.Details))
+                {
+                    <div class="details-box">@bot.Details</div>
+                }
+            </article>
+        }
+    </section>
+}
+
+@code {
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _refreshLoopCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        StartRefreshLoop();
+    }
+
+    private async Task RefreshAsync()
+    {
+        await ViewModel.RefreshAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void StartRefreshLoop()
+    {
+        _refreshLoopCts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(ViewModel.RefreshIntervalSeconds));
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (_timer is not null && await _timer.WaitForNextTickAsync(_refreshLoopCts.Token))
+                {
+                    await ViewModel.RefreshAsync(_refreshLoopCts.Token);
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, _refreshLoopCts.Token);
+    }
+
+    private static string GetStateCss(BotHealthState state) => state switch
+    {
+        BotHealthState.Healthy => "healthy",
+        BotHealthState.Degraded => "degraded",
+        BotHealthState.Offline => "offline",
+        _ => "unknown"
+    };
+
+    private static string GetStateLabel(BotHealthState state) => state switch
+    {
+        BotHealthState.Healthy => "Healthy",
+        BotHealthState.Degraded => "Degraded",
+        BotHealthState.Offline => "Offline",
+        _ => "Unknown"
+    };
+
+    public void Dispose()
+    {
+        _refreshLoopCts?.Cancel();
+        _timer?.Dispose();
+        _refreshLoopCts?.Dispose();
+    }
+}
