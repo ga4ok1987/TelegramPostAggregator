@@ -14,11 +14,9 @@ public sealed class FeedService(IPostRepository postRepository) : IFeedService
             post.Id,
             post.Channel.ChannelName,
             post.RawText.Length > 280 ? post.RawText[..280] : post.RawText,
-            post.ContentHash,
             post.PublishedAtUtc,
             post.HasMedia,
             post.IsForwarded,
-            post.Channel.Status.ToString(),
-            post.DuplicateClusterId)).ToList();
+            post.Channel.Status.ToString())).ToList();
     }
 }

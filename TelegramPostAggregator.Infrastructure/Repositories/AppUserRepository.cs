@@ -10,15 +10,6 @@ public sealed class AppUserRepository(AggregatorDbContext dbContext) : IAppUserR
     public Task<AppUser?> GetByTelegramUserIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
         dbContext.Users.FirstOrDefaultAsync(x => x.TelegramUserId == telegramUserId, cancellationToken);
 
-    public async Task SetPreferredLanguageAsync(long telegramUserId, string languageCode, CancellationToken cancellationToken = default)
-    {
-        var user = await GetByTelegramUserIdAsync(telegramUserId, cancellationToken)
-            ?? throw new InvalidOperationException($"User {telegramUserId} was not found.");
-
-        user.PreferredLanguageCode = languageCode;
-        user.UpdatedAtUtc = DateTimeOffset.UtcNow;
-    }
-
     public async Task AddAsync(AppUser user, CancellationToken cancellationToken = default) =>
         await dbContext.Users.AddAsync(user, cancellationToken);
 

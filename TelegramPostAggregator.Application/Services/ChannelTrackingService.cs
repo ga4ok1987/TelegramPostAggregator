@@ -98,22 +98,68 @@ public sealed class ChannelTrackingService(
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task RemoveAllTrackedChannelsAsync(long telegramUserId, CancellationToken cancellationToken = default)
+    public async Task<bool> RemoveTrackedChannelByIdAsync(RemoveTrackedChannelByIdDto request, CancellationToken cancellationToken = default)
     {
-        var activeSubscriptions = await subscriptionRepository.GetActiveByUserTelegramIdAsync(telegramUserId, cancellationToken);
-        foreach (var subscription in activeSubscriptions)
+        var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(request.TelegramUserId, cancellationToken);
+        var target = subscriptions.FirstOrDefault(x => x.ChannelId == request.ChannelId);
+        if (target is null)
         {
-            subscription.IsActive = false;
-            subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            return false;
+        }
+
+        subscriptionRepository.Remove(target);
+        await subscriptionRepository.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<int> RemoveAllTrackedChannelsAsync(long telegramUserId, CancellationToken cancellationToken = default)
+    {
+        var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        foreach (var subscription in subscriptions)
+        {
+            subscriptionRepository.Remove(subscription);
         }
 
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
+        return subscriptions.Count;
+    }
+
+    public async Task<int> SetSubscriptionsActiveAsync(long telegramUserId, bool isActive, CancellationToken cancellationToken = default)
+    {
+        var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var updatedCount = 0;
+        foreach (var subscription in subscriptions.Where(x => x.IsActive != isActive))
+        {
+            subscription.IsActive = isActive;
+            subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            updatedCount++;
+        }
+
+        if (updatedCount > 0)
+        {
+            await subscriptionRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        return updatedCount;
     }
 
     public async Task<IReadOnlyList<ChannelDto>> ListTrackedChannelsAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
         var channels = await trackedChannelRepository.GetChannelsForUserAsync(telegramUserId, cancellationToken);
         return channels.Select(ToDto).ToList();
+    }
+
+    public async Task<IReadOnlyList<SubscriptionDto>> ListSubscriptionsAsync(long telegramUserId, CancellationToken cancellationToken = default)
+    {
+        var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        return subscriptions
+            .Select(x => new SubscriptionDto(
+                x.ChannelId,
+                x.Channel.ChannelName,
+                x.Channel.UsernameOrInviteLink,
+                x.Channel.Status.ToString(),
+                x.IsActive))
+            .ToList();
     }
 
     private static ChannelDto ToDto(TrackedChannel channel) =>

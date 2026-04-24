@@ -5,6 +5,4 @@ namespace TelegramPostAggregator.Application.Abstractions.Services;
 public interface IUserService
 {
     Task<UserDto> UpsertTelegramUserAsync(BotUserSnapshotDto snapshot, CancellationToken cancellationToken = default);
-    Task<UserDto> SetMonitoringEnabledAsync(long telegramUserId, bool isEnabled, CancellationToken cancellationToken = default);
-    Task<UserDto> SetPreferredLanguageAsync(long telegramUserId, string languageCode, CancellationToken cancellationToken = default);
 }

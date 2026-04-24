@@ -9,6 +9,9 @@ public sealed class TelegramWebhookUpdateRequest
 
     [JsonPropertyName("message")]
     public TelegramWebhookMessage? Message { get; set; }
+
+    [JsonPropertyName("callback_query")]
+    public TelegramWebhookCallbackQuery? CallbackQuery { get; set; }
 }
 
 public sealed class TelegramWebhookMessage
@@ -48,4 +51,19 @@ public sealed class TelegramWebhookUser
 
     [JsonPropertyName("language_code")]
     public string? LanguageCode { get; set; }
+}
+
+public sealed class TelegramWebhookCallbackQuery
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("from")]
+    public TelegramWebhookUser? From { get; set; }
+
+    [JsonPropertyName("data")]
+    public string? Data { get; set; }
+
+    [JsonPropertyName("message")]
+    public TelegramWebhookMessage? Message { get; set; }
 }

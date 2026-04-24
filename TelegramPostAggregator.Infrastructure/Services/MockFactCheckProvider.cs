@@ -9,12 +9,15 @@ public sealed class MockFactCheckProvider : IFactCheckProvider
 {
     public Task<FactCheckResultDto> FactCheckAsync(FactCheckRequest request, TelegramPost post, CancellationToken cancellationToken = default)
     {
-        var seed = Math.Abs(post.ContentHash.GetHashCode());
+        var seedSource = string.IsNullOrWhiteSpace(post.NormalizedText)
+            ? string.IsNullOrWhiteSpace(post.RawText) ? post.Id.ToString("N") : post.RawText
+            : post.NormalizedText;
+        var seed = Math.Abs(seedSource.GetHashCode());
         var score = decimal.Round((seed % 100) / 100m, 2);
         var evidence = JsonSerializer.Serialize(new
         {
             method = "mock-provider",
-            normalizedHash = post.ContentHash,
+            normalizedText = post.NormalizedText,
             generatedAtUtc = DateTimeOffset.UtcNow
         });
 

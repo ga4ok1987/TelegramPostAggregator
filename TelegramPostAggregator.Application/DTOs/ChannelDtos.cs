@@ -4,6 +4,8 @@ public sealed record AddTrackedChannelDto(long TelegramUserId, string TelegramUs
 
 public sealed record RemoveTrackedChannelDto(long TelegramUserId, string ChannelReference);
 
+public sealed record RemoveTrackedChannelByIdDto(long TelegramUserId, Guid ChannelId);
+
 public sealed record ChannelDto(
     Guid Id,
     string ChannelName,
@@ -11,3 +13,10 @@ public sealed record ChannelDto(
     string Status,
     DateTimeOffset? LastPostCollectedAtUtc,
     string? LastCollectorError);
+
+public sealed record SubscriptionDto(
+    Guid ChannelId,
+    string ChannelName,
+    string ChannelReference,
+    string Status,
+    bool IsActive);

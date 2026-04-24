@@ -1,9 +1,9 @@
+using System.Text.RegularExpressions;
+using System.Text.Json;
 using TdLib;
 using TelegramPostAggregator.Application.Abstractions.External;
-using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Domain.Entities;
-using TelegramPostAggregator.Infrastructure.Models;
 using TelegramPostAggregator.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,11 +13,9 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 public sealed class TdLibTelegramCollectorGateway(
     IOptions<TdLibOptions> options,
     TdLibCollectorClientManager clientManager,
-    IErrorAlertService errorAlertService,
     ILogger<TdLibTelegramCollectorGateway> logger) : ITelegramCollectorGateway
 {
-    private const int ChatHistoryPageSize = 100;
-    private const int MaxHistoryPagesPerSync = 10;
+    private static readonly Regex TelegramLinkRegex = new(@"^(?:https?://)?t\.me/(?<slug>[^/?#]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public Task<CollectorAuthStatusDto> GetAuthorizationStatusAsync(CollectorAccount collectorAccount, CancellationToken cancellationToken = default) =>
         clientManager.GetStatusAsync(collectorAccount, cancellationToken);
@@ -72,11 +70,6 @@ public sealed class TdLibTelegramCollectorGateway(
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to join channel {ChannelReference}", channel.UsernameOrInviteLink);
-            await errorAlertService.SendAsync(
-                "Collector failed to join channel",
-                $"Channel: {channel.ChannelName}\nReference: {channel.UsernameOrInviteLink}",
-                exception,
-                cancellationToken);
             return new CollectorJoinResultDto(false, null, null, exception.Message);
         }
     }
@@ -93,45 +86,31 @@ public sealed class TdLibTelegramCollectorGateway(
             var chat = await ResolveChatAsync(client, channel, cancellationToken);
             await client.ExecuteAsync(new TdApi.OpenChat { ChatId = chat.Id });
 
-            var posts = new List<CollectedPostDto>();
-            var fromMessageId = 0L;
-            for (var page = 0; page < MaxHistoryPagesPerSync; page++)
+            var history = await client.ExecuteAsync(new TdApi.GetChatHistory
             {
-                var history = await client.ExecuteAsync(new TdApi.GetChatHistory
-                {
-                    ChatId = chat.Id,
-                    FromMessageId = fromMessageId,
-                    Offset = 0,
-                    Limit = ChatHistoryPageSize,
-                    OnlyLocal = false
-                });
+                ChatId = chat.Id,
+                FromMessageId = 0,
+                Offset = 0,
+                Limit = 100,
+                OnlyLocal = false
+            });
 
-                var messages = history.Messages_;
-                if (messages.Length == 0)
+            var posts = new List<CollectedPostDto>();
+            foreach (var message in history.Messages_.Where(message => message.IsChannelPost).OrderBy(message => message.Date))
+            {
+                var publishedAtUtc = DateTimeOffset.FromUnixTimeSeconds(message.Date);
+                if (sinceUtc is not null && publishedAtUtc <= sinceUtc.Value)
                 {
-                    break;
+                    continue;
                 }
 
-                var reachedSyncedHistory = false;
-                foreach (var message in messages.Where(message => message.IsChannelPost).OrderBy(message => message.Date))
+                if (IsIgnorableContent(message.Content))
                 {
-                    var messagePublishedAtUtc = DateTimeOffset.FromUnixTimeSeconds(message.Date);
-                    if (sinceUtc is not null && messagePublishedAtUtc <= sinceUtc.Value)
-                    {
-                        reachedSyncedHistory = true;
-                        continue;
-                    }
-
-                    var post = await ToCollectedPostAsync(client, channel, chat.Id, message, cancellationToken);
-                    posts.Add(post);
+                    continue;
                 }
 
-                if (reachedSyncedHistory || messages.Length < ChatHistoryPageSize)
-                {
-                    break;
-                }
-
-                fromMessageId = messages.Min(message => message.Id);
+                var post = await ToCollectedPostAsync(client, channel, chat.Id, message, cancellationToken);
+                posts.Add(post);
             }
 
             return posts;
@@ -139,11 +118,6 @@ public sealed class TdLibTelegramCollectorGateway(
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to fetch recent posts for channel {ChannelReference}", channel.UsernameOrInviteLink);
-            await errorAlertService.SendAsync(
-                "Collector failed to fetch posts",
-                $"Channel: {channel.ChannelName}\nReference: {channel.UsernameOrInviteLink}",
-                exception,
-                cancellationToken);
             return Array.Empty<CollectedPostDto>();
         }
     }
@@ -156,22 +130,26 @@ public sealed class TdLibTelegramCollectorGateway(
         }
 
         var reference = channel.UsernameOrInviteLink.Trim();
-        if (TelegramChannelLinkHelper.IsInviteLink(reference))
+        if (reference.Contains("/+") || reference.Contains("joinchat", StringComparison.OrdinalIgnoreCase))
         {
-            var inviteLink = TelegramChannelLinkHelper.NormalizeInviteLink(reference);
-            var inviteInfo = await client.ExecuteAsync(new TdApi.CheckChatInviteLink { InviteLink = inviteLink });
-            if (inviteInfo.ChatId != 0)
-            {
-                return await client.ExecuteAsync(new TdApi.GetChat { ChatId = inviteInfo.ChatId });
-            }
-
-            return await client.ExecuteAsync(new TdApi.JoinChatByInviteLink { InviteLink = inviteLink });
+            return await client.ExecuteAsync(new TdApi.JoinChatByInviteLink { InviteLink = reference });
         }
 
-        var chat = await client.ExecuteAsync(new TdApi.SearchPublicChat
+        var username = channel.NormalizedChannelKey;
+        if (reference.StartsWith('@'))
         {
-            Username = TelegramChannelLinkHelper.ResolvePublicUsername(reference, channel.NormalizedChannelKey)
-        });
+            username = reference[1..];
+        }
+        else
+        {
+            var match = TelegramLinkRegex.Match(reference);
+            if (match.Success)
+            {
+                username = match.Groups["slug"].Value;
+            }
+        }
+
+        var chat = await client.ExecuteAsync(new TdApi.SearchPublicChat { Username = username });
         return chat;
     }
 
@@ -191,7 +169,7 @@ public sealed class TdLibTelegramCollectorGateway(
             message.Id,
             publishedAtUtc,
             text,
-            message.MediaAlbumId == 0 ? null : message.MediaAlbumId.ToString(),
+            GetMediaGroupId(message),
             HasMedia(message.Content),
             message.ForwardInfo is not null,
             message.AuthorSignature,
@@ -215,6 +193,12 @@ public sealed class TdLibTelegramCollectorGateway(
 
     private static bool HasMedia(TdApi.MessageContent content) =>
         content is not TdApi.MessageContent.MessageText;
+
+    private static bool IsIgnorableContent(TdApi.MessageContent content) =>
+        content.DataType.StartsWith("messageGiveaway", StringComparison.Ordinal);
+
+    private static string? GetMediaGroupId(TdApi.Message message) =>
+        message.MediaAlbumId == 0 ? null : message.MediaAlbumId.ToString();
 
     private static string ExtractFormattedText(TdApi.FormattedText? text)
     {
@@ -258,33 +242,27 @@ public sealed class TdLibTelegramCollectorGateway(
         }
 
         var reference = channel.UsernameOrInviteLink.Trim();
-        if (TelegramChannelLinkHelper.IsInviteLink(reference) &&
-            TelegramChannelLinkHelper.TryBuildPrivatePostUrl(chatId, messageId, out var inviteOnlyPostUrl))
+        var match = TelegramLinkRegex.Match(reference);
+        if (match.Success)
         {
-            return inviteOnlyPostUrl;
+            return $"https://t.me/{match.Groups["slug"].Value}/{messageId}";
         }
 
-        var publicPostUrl = TelegramChannelLinkHelper.BuildPublicPostUrl(reference, messageId);
-        if (!string.IsNullOrWhiteSpace(publicPostUrl))
+        if (reference.StartsWith('@'))
         {
-            return publicPostUrl;
-        }
-
-        if (TelegramChannelLinkHelper.TryBuildPrivatePostUrl(chatId, messageId, out var privatePostUrl))
-        {
-            return privatePostUrl;
+            return $"https://t.me/{reference[1..]}/{messageId}";
         }
 
         return $"https://t.me/{channel.NormalizedChannelKey}/{messageId}";
     }
 
-    private static async Task<string> BuildMetadataJsonAsync(
+    private static Task<string> BuildMetadataJsonAsync(
         TdClient client,
         long chatId,
         TdApi.Message message,
         CancellationToken cancellationToken)
     {
-        var metadata = new PostMediaMetadata
+        var metadata = new PostMetadata
         {
             ChatId = chatId,
             MessageId = message.Id,
@@ -295,68 +273,28 @@ public sealed class TdLibTelegramCollectorGateway(
         {
             case TdApi.MessageContent.MessagePhoto photo:
                 metadata.MediaKind = "photo";
-                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(
-                    client,
-                    photo.Photo.Sizes.OrderByDescending(size => size.Width * size.Height).FirstOrDefault()?.Photo,
-                    cancellationToken);
+                metadata.MediaFileId = photo.Photo.Sizes
+                    .OrderByDescending(size => size.Width * size.Height)
+                    .FirstOrDefault()
+                    ?.Photo
+                    ?.Id;
                 break;
             case TdApi.MessageContent.MessageVideo video:
                 metadata.MediaKind = "video";
-                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, video.Video.Video_, cancellationToken);
+                metadata.MediaFileId = video.Video.Video_.Id;
                 break;
         }
 
-        return PostMediaMetadata.Serialize(metadata);
+        return Task.FromResult(JsonSerializer.Serialize(metadata));
     }
 
-    private static async Task<string?> DownloadFileAndGetPathAsync(TdClient client, TdApi.File? file, CancellationToken cancellationToken)
+    private sealed class PostMetadata
     {
-        if (file is null)
-        {
-            return null;
-        }
-
-        var local = file.Local;
-        if (local.IsDownloadingCompleted && !string.IsNullOrWhiteSpace(local.Path))
-        {
-            EnsureWorldReadable(local.Path);
-            return local.Path;
-        }
-
-        var downloaded = await client.ExecuteAsync(new TdApi.DownloadFile
-        {
-            FileId = file.Id,
-            Priority = 16,
-            Offset = 0,
-            Limit = 0,
-            Synchronous = true
-        });
-
-        if (downloaded.Local.IsDownloadingCompleted && !string.IsNullOrWhiteSpace(downloaded.Local.Path))
-        {
-            EnsureWorldReadable(downloaded.Local.Path);
-            return downloaded.Local.Path;
-        }
-
-        return null;
-    }
-
-    private static void EnsureWorldReadable(string path)
-    {
-        try
-        {
-            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-            {
-                File.SetUnixFileMode(
-                    path,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                    UnixFileMode.GroupRead |
-                    UnixFileMode.OtherRead);
-            }
-        }
-        catch
-        {
-            // Best-effort permission fix for local Bot API file access.
-        }
+        public long ChatId { get; set; }
+        public long MessageId { get; set; }
+        public string ContentType { get; set; } = string.Empty;
+        public string? MediaKind { get; set; }
+        public int? MediaFileId { get; set; }
+        public string? MediaLocalPath { get; set; }
     }
 }

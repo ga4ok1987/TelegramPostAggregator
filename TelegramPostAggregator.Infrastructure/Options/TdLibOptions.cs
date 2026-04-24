@@ -15,4 +15,7 @@ public sealed class TdLibOptions
     public string SystemLanguageCode { get; set; } = "en";
     public string ApplicationVersion { get; set; } = "1.0.0";
     public int AuthorizationTimeoutSeconds { get; set; } = 30;
+    public bool MediaCacheCleanupEnabled { get; set; } = true;
+    public int MediaCacheRetentionHours { get; set; } = 24;
+    public int MediaCacheCleanupBatchSize { get; set; } = 500;
 }

@@ -11,7 +11,6 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 
 public sealed class TelegramBotPollingService(
     ITelegramBotGateway telegramBotGateway,
-    IErrorAlertService errorAlertService,
     IServiceScopeFactory scopeFactory,
     IOptions<TelegramBotOptions> options,
     ILogger<TelegramBotPollingService> logger) : BackgroundService
@@ -45,11 +44,6 @@ public sealed class TelegramBotPollingService(
             catch (Exception exception)
             {
                 logger.LogError(exception, "Telegram bot polling iteration failed.");
-                await errorAlertService.SendAsync(
-                    "Bot polling iteration failed",
-                    "Telegram bot polling loop failed.",
-                    exception,
-                    stoppingToken);
                 await Task.Delay(_options.PollingDelayMilliseconds, stoppingToken);
             }
         }
@@ -57,18 +51,30 @@ public sealed class TelegramBotPollingService(
 
     private async Task ProcessUpdateAsync(TelegramBotUpdateDto update, CancellationToken cancellationToken)
     {
-        if (update.ChatId is null)
-        {
-            return;
-        }
-
         using var scope = scopeFactory.CreateScope();
         var processor = scope.ServiceProvider.GetRequiredService<IBotUpdateProcessor>();
         var result = await processor.ProcessAsync(update, cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(result.Message))
+        if (!string.IsNullOrWhiteSpace(update.CallbackQueryId))
         {
-            await telegramBotGateway.SendMessageAsync(new TelegramBotOutboundMessageDto(update.ChatId.Value, result.Message, ReplyMarkup: result.ReplyMarkup), cancellationToken);
+            var callbackResponse = await telegramBotGateway.AnswerCallbackQueryAsync(update.CallbackQueryId, result.CallbackNotification, cancellationToken);
+            EnsureSuccess(callbackResponse, "answerCallbackQuery");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.Message) && update.ChatId.HasValue)
+        {
+            var response = await telegramBotGateway.SendMessageAsync(
+                new TelegramBotOutboundMessageDto(update.ChatId.Value, result.Message, result.ReplyMarkup),
+                cancellationToken);
+            EnsureSuccess(response, "sendMessage");
+        }
+    }
+
+    private static void EnsureSuccess(TelegramBotApiResultDto result, string endpoint)
+    {
+        if (!result.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"Telegram Bot API call {endpoint} failed with {(int)result.StatusCode}: {result.ResponseBody}");
         }
     }
 }

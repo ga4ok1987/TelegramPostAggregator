@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TelegramPostAggregator.Application.Abstractions.Services;
+using TelegramPostAggregator.Application.Services.Bot;
 using TelegramPostAggregator.Application.Options;
 using TelegramPostAggregator.Application.Services;
 
@@ -14,7 +15,6 @@ public static class DependencyInjection
         services.Configure<FactCheckOptions>(configuration.GetSection(FactCheckOptions.SectionName));
 
         services.AddScoped<IChannelKeyNormalizer, ChannelKeyNormalizer>();
-        services.AddScoped<IChannelReferenceValidator, ChannelReferenceValidator>();
         services.AddScoped<ITextNormalizer, TextNormalizer>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IChannelTrackingService, ChannelTrackingService>();
@@ -23,14 +23,8 @@ public static class DependencyInjection
         services.AddScoped<ICollectorCoordinator, CollectorCoordinator>();
         services.AddScoped<ICollectorAuthService, CollectorAuthService>();
         services.AddScoped<IBotUpdateProcessor, BotUpdateProcessor>();
-
-        return services;
-    }
-
-    public static IServiceCollection AddMonitoringApplication(this IServiceCollection services, IConfiguration configuration)
-    {
-        services.Configure<BotMonitoringOptions>(configuration.GetSection(BotMonitoringOptions.SectionName));
-        services.AddSingleton<IBotMonitoringService, BotMonitoringService>();
+        services.AddSingleton<BotMenuFactory>();
+        services.AddSingleton<BotMessageCatalog>();
 
         return services;
     }

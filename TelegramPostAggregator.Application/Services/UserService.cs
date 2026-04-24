@@ -26,36 +26,11 @@ public sealed class UserService(IAppUserRepository userRepository) : IUserServic
         {
             user.TelegramUsername = snapshot.TelegramUsername;
             user.DisplayName = snapshot.DisplayName;
+            user.PreferredLanguageCode = string.IsNullOrWhiteSpace(snapshot.LanguageCode) ? user.PreferredLanguageCode : snapshot.LanguageCode!;
             user.UpdatedAtUtc = DateTimeOffset.UtcNow;
         }
 
         await userRepository.SaveChangesAsync(cancellationToken);
-        return ToDto(user);
+        return new UserDto(user.Id, user.TelegramUserId, user.TelegramUsername, user.DisplayName, user.PreferredLanguageCode);
     }
-
-    public async Task<UserDto> SetMonitoringEnabledAsync(long telegramUserId, bool isEnabled, CancellationToken cancellationToken = default)
-    {
-        var user = await userRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken)
-            ?? throw new InvalidOperationException($"User {telegramUserId} was not found.");
-
-        user.IsMonitoringEnabled = isEnabled;
-        user.UpdatedAtUtc = DateTimeOffset.UtcNow;
-
-        await userRepository.SaveChangesAsync(cancellationToken);
-        return ToDto(user);
-    }
-
-    public async Task<UserDto> SetPreferredLanguageAsync(long telegramUserId, string languageCode, CancellationToken cancellationToken = default)
-    {
-        await userRepository.SetPreferredLanguageAsync(telegramUserId, languageCode, cancellationToken);
-        await userRepository.SaveChangesAsync(cancellationToken);
-
-        var user = await userRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken)
-            ?? throw new InvalidOperationException($"User {telegramUserId} was not found.");
-
-        return ToDto(user);
-    }
-
-    private static UserDto ToDto(AppUser user) =>
-        new(user.Id, user.TelegramUserId, user.TelegramUsername, user.DisplayName, user.PreferredLanguageCode, user.IsMonitoringEnabled);
 }

@@ -51,8 +51,6 @@ public sealed class TdLibRealtimePostIngestionService(
 
             var text = ExtractText(message.Content);
             var normalizedText = textNormalizer.Normalize(text);
-            var hash = textNormalizer.ComputeHash(normalizedText);
-            var duplicate = await postRepository.GetByContentHashAsync(hash, cancellationToken);
             var metadataJson = await BuildMetadataJsonAsync(client, message.ChatId, message, cancellationToken);
             var post = new TelegramPost
             {
@@ -63,13 +61,11 @@ public sealed class TdLibRealtimePostIngestionService(
                 AuthorSignature = message.AuthorSignature,
                 RawText = text,
                 NormalizedText = normalizedText,
-                ContentHash = hash,
                 MediaGroupId = message.MediaAlbumId == 0 ? null : message.MediaAlbumId.ToString(),
                 HasMedia = HasMedia(message.Content),
                 IsForwarded = message.ForwardInfo is not null,
                 OriginalPostUrl = await BuildOriginalPostUrlAsync(client, channel, message.ChatId, message.Id),
-                MetadataJson = metadataJson,
-                DuplicateClusterId = duplicate?.DuplicateClusterId
+                MetadataJson = metadataJson
             };
 
             await postRepository.AddAsync(post, cancellationToken);

@@ -8,11 +8,6 @@ namespace TelegramPostAggregator.Infrastructure.Repositories;
 
 public sealed class CollectorAccountRepository(AggregatorDbContext dbContext) : ICollectorAccountRepository
 {
-    private static readonly string[] RetriableAssignmentErrors =
-    [
-        "INVITE_REQUEST_SENT"
-    ];
-
     public Task<CollectorAccount?> GetPrimaryAvailableAsync(CancellationToken cancellationToken = default) =>
         dbContext.CollectorAccounts
             .Where(x => x.IsEnabled && x.Status == CollectorAccountStatus.Active)
@@ -26,12 +21,7 @@ public sealed class CollectorAccountRepository(AggregatorDbContext dbContext) : 
         await dbContext.ChannelCollectorAssignments
             .Include(x => x.Channel)
             .Include(x => x.CollectorAccount)
-            .Where(x =>
-                x.CollectorAccount.IsEnabled &&
-                (x.Status == ChannelTrackingStatus.PendingSubscription ||
-                 (x.Status == ChannelTrackingStatus.Failed &&
-                  x.LastError != null &&
-                  RetriableAssignmentErrors.Contains(x.LastError))))
+            .Where(x => x.Status == ChannelTrackingStatus.PendingSubscription && x.CollectorAccount.IsEnabled)
             .OrderBy(x => x.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 

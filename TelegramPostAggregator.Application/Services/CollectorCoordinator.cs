@@ -17,7 +17,6 @@ public sealed class CollectorCoordinator(
     ITelegramCollectorGateway telegramCollectorGateway,
     ITextNormalizer textNormalizer,
     IOptions<CollectorOptions> options,
-    IErrorAlertService errorAlertService,
     ILogger<CollectorCoordinator> logger) : ICollectorCoordinator
 {
     public async Task ProcessPendingSubscriptionsAsync(CancellationToken cancellationToken = default)
@@ -32,7 +31,6 @@ public sealed class CollectorCoordinator(
             {
                 assignment.JoinedAtUtc = DateTimeOffset.UtcNow;
                 assignment.Status = ChannelTrackingStatus.Active;
-                assignment.LastError = null;
                 assignment.Channel.Status = ChannelTrackingStatus.Active;
                 assignment.Channel.TelegramChannelId = result.ExternalChannelId ?? assignment.Channel.TelegramChannelId;
                 assignment.Channel.ChannelName = string.IsNullOrWhiteSpace(result.DisplayName) ? assignment.Channel.ChannelName : result.DisplayName!;
@@ -44,12 +42,6 @@ public sealed class CollectorCoordinator(
                 assignment.Channel.Status = ChannelTrackingStatus.Failed;
                 assignment.Channel.LastCollectorError = result.ErrorMessage;
                 assignment.LastError = result.ErrorMessage;
-
-                await errorAlertService.SendAsync(
-                    "Collector subscription failed",
-                    $"Channel: {assignment.Channel.ChannelName}\nReference: {assignment.Channel.UsernameOrInviteLink}\nError: {result.ErrorMessage}",
-                    null,
-                    cancellationToken);
             }
 
             assignment.UpdatedAtUtc = DateTimeOffset.UtcNow;
@@ -65,11 +57,6 @@ public sealed class CollectorCoordinator(
         var assignments = await collectorAccountRepository.GetAssignmentsForSynchronizationAsync(cancellationToken);
         foreach (var assignment in assignments.Take(options.Value.PostSyncBatchSize))
         {
-            var fetchedPostsCount = 0;
-            var insertedPostsCount = 0;
-            var refreshedPostsCount = 0;
-            var unchangedPostsCount = 0;
-
             try
             {
                 var posts = await telegramCollectorGateway.GetRecentPostsAsync(
@@ -77,39 +64,38 @@ public sealed class CollectorCoordinator(
                     assignment.Channel,
                     assignment.LastSyncedAtUtc ?? assignment.Channel.LastPostCollectedAtUtc,
                     cancellationToken);
-                fetchedPostsCount = posts.Count;
 
-                foreach (var collectedPost in posts.OrderBy(x => x.PublishedAtUtc))
+                var orderedPosts = posts.OrderBy(x => x.PublishedAtUtc).ToList();
+                var existingPostsByMessageId = new Dictionary<long, TelegramPost>(
+                    await postRepository.GetByChannelAndMessageIdsAsync(
+                        assignment.ChannelId,
+                        orderedPosts.Select(x => x.TelegramMessageId).ToArray(),
+                        cancellationToken));
+
+                foreach (var collectedPost in orderedPosts)
                 {
-                    var existing = await postRepository.GetByChannelAndMessageIdAsync(assignment.ChannelId, collectedPost.TelegramMessageId, cancellationToken);
+                    existingPostsByMessageId.TryGetValue(collectedPost.TelegramMessageId, out var existing);
                     if (existing is not null)
                     {
                         if (NeedsRefresh(existing, collectedPost))
                         {
+                            var refreshedNormalizedText = textNormalizer.Normalize(collectedPost.Text);
                             existing.PublishedAtUtc = collectedPost.PublishedAtUtc;
                             existing.AuthorSignature = collectedPost.AuthorSignature;
                             existing.RawText = collectedPost.Text;
-                            existing.NormalizedText = textNormalizer.Normalize(collectedPost.Text);
-                            existing.ContentHash = textNormalizer.ComputeHash(existing.NormalizedText);
+                            existing.NormalizedText = refreshedNormalizedText;
                             existing.MediaGroupId = collectedPost.MediaGroupId;
                             existing.HasMedia = collectedPost.HasMedia;
                             existing.IsForwarded = collectedPost.IsForwarded;
                             existing.OriginalPostUrl = collectedPost.OriginalPostUrl;
                             existing.MetadataJson = collectedPost.MetadataJson;
                             existing.UpdatedAtUtc = DateTimeOffset.UtcNow;
-                            refreshedPostsCount++;
-                        }
-                        else
-                        {
-                            unchangedPostsCount++;
                         }
 
                         continue;
                     }
 
                     var normalizedText = textNormalizer.Normalize(collectedPost.Text);
-                    var hash = textNormalizer.ComputeHash(normalizedText);
-                    var duplicate = await postRepository.GetByContentHashAsync(hash, cancellationToken);
 
                     var post = new TelegramPost
                     {
@@ -120,7 +106,6 @@ public sealed class CollectorCoordinator(
                         AuthorSignature = collectedPost.AuthorSignature,
                         RawText = collectedPost.Text,
                         NormalizedText = normalizedText,
-                        ContentHash = hash,
                         MediaGroupId = collectedPost.MediaGroupId,
                         HasMedia = collectedPost.HasMedia,
                         IsForwarded = collectedPost.IsForwarded,
@@ -128,41 +113,17 @@ public sealed class CollectorCoordinator(
                         MetadataJson = collectedPost.MetadataJson
                     };
 
-                    if (duplicate?.DuplicateClusterId is Guid duplicateClusterId)
-                    {
-                        post.DuplicateClusterId = duplicateClusterId;
-                    }
-
                     await postRepository.AddAsync(post, cancellationToken);
-                    insertedPostsCount++;
+                    existingPostsByMessageId[post.TelegramMessageId] = post;
                 }
 
                 assignment.LastSyncedAtUtc = DateTimeOffset.UtcNow;
                 assignment.Channel.LastPostCollectedAtUtc = DateTimeOffset.UtcNow;
                 assignment.Channel.Status = ChannelTrackingStatus.Active;
-                assignment.Channel.LastCollectorError = null;
-
-                if (fetchedPostsCount > 0 || refreshedPostsCount > 0)
-                {
-                    logger.LogInformation(
-                        "Collector sync summary for channel {ChannelName} ({ChannelId}): fetched={FetchedPostsCount}, inserted={InsertedPostsCount}, refreshed={RefreshedPostsCount}, unchanged={UnchangedPostsCount}, collector={CollectorAccountId}",
-                        assignment.Channel.ChannelName,
-                        assignment.ChannelId,
-                        fetchedPostsCount,
-                        insertedPostsCount,
-                        refreshedPostsCount,
-                        unchangedPostsCount,
-                        assignment.CollectorAccountId);
-                }
             }
             catch (Exception exception)
             {
                 logger.LogError(exception, "Synchronization failed for channel {ChannelId}", assignment.ChannelId);
-                await errorAlertService.SendAsync(
-                    "Collector synchronization failed",
-                    $"Channel: {assignment.Channel.ChannelName}\nReference: {assignment.Channel.UsernameOrInviteLink}",
-                    exception,
-                    cancellationToken);
                 assignment.Status = ChannelTrackingStatus.Failed;
                 assignment.LastError = exception.Message;
                 assignment.Channel.LastCollectorError = exception.Message;
@@ -198,12 +159,12 @@ public sealed class CollectorCoordinator(
             return true;
         }
 
-        if (!string.Equals(existing.MediaGroupId, collectedPost.MediaGroupId, StringComparison.Ordinal))
+        if (!string.Equals(existing.MetadataJson, collectedPost.MetadataJson, StringComparison.Ordinal))
         {
             return true;
         }
 
-        if (!string.Equals(existing.MetadataJson, collectedPost.MetadataJson, StringComparison.Ordinal))
+        if (!string.Equals(existing.MediaGroupId, collectedPost.MediaGroupId, StringComparison.Ordinal))
         {
             return true;
         }

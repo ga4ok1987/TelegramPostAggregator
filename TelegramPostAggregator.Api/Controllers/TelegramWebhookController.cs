@@ -13,7 +13,9 @@ public sealed class TelegramWebhookController(IBotUpdateProcessor botUpdateProce
     [ProducesResponseType(typeof(BotCommandResultDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<BotCommandResultDto>> Process([FromBody] TelegramWebhookUpdateRequest request, CancellationToken cancellationToken)
     {
-        if (request.Message?.From is null)
+        var sourceUser = request.Message?.From ?? request.CallbackQuery?.From;
+        var chatId = request.Message?.Chat?.Id ?? request.CallbackQuery?.Message?.Chat?.Id;
+        if (sourceUser is null)
         {
             return Ok(new BotCommandResultDto(true, "No actionable message in update."));
         }
@@ -21,12 +23,14 @@ public sealed class TelegramWebhookController(IBotUpdateProcessor botUpdateProce
         var update = new TelegramBotUpdateDto(
             request.UpdateId,
             new BotUserSnapshotDto(
-                request.Message.From.Id,
-                request.Message.From.Username ?? string.Empty,
-                string.Join(' ', new[] { request.Message.From.FirstName, request.Message.From.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
-                request.Message.From.LanguageCode),
-            request.Message.Text,
-            request.Message.Chat?.Id,
+                sourceUser.Id,
+                sourceUser.Username ?? string.Empty,
+                string.Join(' ', new[] { sourceUser.FirstName, sourceUser.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
+                sourceUser.LanguageCode),
+            request.Message?.Text,
+            request.CallbackQuery?.Id,
+            request.CallbackQuery?.Data,
+            chatId,
             DateTimeOffset.UtcNow);
 
         var result = await botUpdateProcessor.ProcessAsync(update, cancellationToken);

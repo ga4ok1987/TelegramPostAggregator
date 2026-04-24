@@ -1,8 +1,13 @@
 using Hangfire;
+using Hangfire.Dashboard;
 using TelegramPostAggregator.Application;
+using TelegramPostAggregator.Api.Models;
 using TelegramPostAggregator.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
+var hangfireDashboardSettings = builder.Configuration
+    .GetSection(HangfireDashboardSettings.SectionName)
+    .Get<HangfireDashboardSettings>() ?? new HangfireDashboardSettings();
 
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -22,16 +27,27 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler("/api/health/error");
-if (!string.IsNullOrWhiteSpace(builder.Configuration["HTTPS_PORTS"]) ||
-    !string.IsNullOrWhiteSpace(builder.Configuration["ASPNETCORE_HTTPS_PORTS"]) ||
-    !string.IsNullOrWhiteSpace(builder.Configuration["ASPNETCORE_HTTPS_PORT"]))
-{
-    app.UseHttpsRedirection();
-}
-
+app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHangfireDashboard("/jobs");
+
+if (app.Environment.IsDevelopment() || hangfireDashboardSettings.Enabled)
+{
+    var dashboardOptions = new DashboardOptions();
+
+    if (!app.Environment.IsDevelopment())
+    {
+        dashboardOptions.Authorization =
+        [
+            new HangfireDashboardAuthorizationFilter(
+                hangfireDashboardSettings.AllowLocalRequests,
+                hangfireDashboardSettings.Username,
+                hangfireDashboardSettings.Password)
+        ];
+    }
+
+    app.MapHangfireDashboard("/jobs", dashboardOptions);
+}
 
 app.Run();

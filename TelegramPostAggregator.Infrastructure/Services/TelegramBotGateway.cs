@@ -1,21 +1,18 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json.Serialization;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
+using System.Text.Json.Serialization;
 using TelegramPostAggregator.Application.Abstractions.External;
-using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Infrastructure.Options;
+using Microsoft.Extensions.Options;
 
 namespace TelegramPostAggregator.Infrastructure.Services;
 
 public sealed class TelegramBotGateway(
     IHttpClientFactory httpClientFactory,
-    IOptions<TelegramBotOptions> options,
-    IErrorAlertService errorAlertService,
-    ILogger<TelegramBotGateway> logger) : ITelegramBotGateway
+    IOptions<TelegramBotOptions> options) : ITelegramBotGateway
 {
     private const string DefaultBotApiBaseUrl = "https://api.telegram.org";
     private readonly TelegramBotOptions _options = options.Value;
@@ -26,12 +23,13 @@ public sealed class TelegramBotGateway(
         var response = await CreateClient().GetFromJsonAsync<TelegramApiResponse<List<TelegramGetUpdate>>>(url, cancellationToken);
 
         return response?.Result?
-            .Where(update => update.Message?.From is not null)
             .Select(MapUpdate)
+            .Where(update => update is not null)
+            .Cast<TelegramBotUpdateDto>()
             .ToArray() ?? [];
     }
 
-    public async Task SendMessageAsync(TelegramBotOutboundMessageDto message, CancellationToken cancellationToken = default)
+    public Task<TelegramBotApiResultDto> SendMessageAsync(TelegramBotOutboundMessageDto message, CancellationToken cancellationToken = default)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -47,57 +45,126 @@ public sealed class TelegramBotGateway(
 
         if (message.ReplyMarkup is not null)
         {
-            payload["reply_markup"] = new
-            {
-                keyboard = message.ReplyMarkup.Keyboard,
-                resize_keyboard = message.ReplyMarkup.ResizeKeyboard,
-                one_time_keyboard = message.ReplyMarkup.OneTimeKeyboard
-            };
+            payload["reply_markup"] = CreateReplyMarkup(message.ReplyMarkup);
         }
 
-        using var response = await CreateClient().PostAsJsonAsync("sendMessage", payload, cancellationToken);
-
-        await EnsureSuccessAsync(response, "sendMessage", message.ChatId, null, cancellationToken);
+        return PostJsonAsync("sendMessage", payload, cancellationToken);
     }
 
-    public Task SendPhotoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+    public Task<TelegramBotApiResultDto> SendPhotoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
         SendMediaAsync("sendPhoto", "photo", message, cancellationToken);
 
-    public Task SendVideoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+    public Task<TelegramBotApiResultDto> SendVideoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
         SendMediaAsync("sendVideo", "video", message, cancellationToken);
 
-    public async Task SendMediaGroupAsync(TelegramBotMediaGroupMessageDto message, CancellationToken cancellationToken = default)
+    public async Task<TelegramBotApiResultDto?> SendMediaGroupAsync(TelegramBotMediaGroupMessageDto message, CancellationToken cancellationToken = default)
     {
-        if (!message.Items.Any())
+        if (message.Items.Count == 0)
         {
-            return;
+            return null;
         }
 
-        var mediaPayload = message.Items.Select((item, index) =>
+        if (_options.UseLocalBotApiFileTransport && message.Items.All(item => File.Exists(item.FilePath)))
         {
-            var payload = new Dictionary<string, object?>
-            {
-                ["type"] = item.Type,
-                ["media"] = new Uri(item.FilePath).AbsoluteUri,
-                ["caption"] = index == 0 ? item.Caption : string.Empty
-            };
+            var mediaPayload = message.Items.Select(item => CreateMediaPayload(item, new Uri(item.FilePath).AbsoluteUri)).ToArray();
 
-            if (index == 0 && !string.IsNullOrWhiteSpace(item.Caption) && !string.IsNullOrWhiteSpace(item.ParseMode))
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
-                payload["parse_mode"] = item.ParseMode;
+                ["chat_id"] = message.ChatId.ToString(),
+                ["media"] = JsonSerializer.Serialize(mediaPayload)
+            });
+
+            using var response = await CreateClient().PostAsync("sendMediaGroup", content, cancellationToken);
+            return await ToResultAsync(response, cancellationToken);
+        }
+
+        var streams = new List<Stream>();
+
+        try
+        {
+            var mediaItems = new List<object>();
+            for (var index = 0; index < message.Items.Count; index++)
+            {
+                var item = message.Items[index];
+                if (!File.Exists(item.FilePath))
+                {
+                    DisposeStreams(streams);
+                    return null;
+                }
+
+                var attachName = $"file{index}";
+                mediaItems.Add(CreateMediaPayload(item, $"attach://{attachName}"));
+
+                streams.Add(File.OpenRead(item.FilePath));
             }
 
-            return payload;
-        }).ToArray();
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(message.ChatId.ToString()), "chat_id");
+            content.Add(new StringContent(JsonSerializer.Serialize(mediaItems), Encoding.UTF8, "application/json"), "media");
 
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            for (var index = 0; index < streams.Count; index++)
+            {
+                var fileContent = new StreamContent(streams[index]);
+                content.Add(fileContent, $"file{index}", Path.GetFileName(message.Items[index].FilePath));
+            }
+
+            using var response = await CreateClient().PostAsync("sendMediaGroup", content, cancellationToken);
+            return await ToResultAsync(response, cancellationToken);
+        }
+        catch
         {
-            ["chat_id"] = message.ChatId.ToString(),
-            ["media"] = JsonSerializer.Serialize(mediaPayload)
-        });
+            DisposeStreams(streams);
+            throw;
+        }
+    }
 
-        using var response = await CreateClient().PostAsync("sendMediaGroup", content, cancellationToken);
-        await EnsureSuccessAsync(response, "sendMediaGroup", message.ChatId, string.Join(", ", message.Items.Select(x => x.FilePath)), cancellationToken);
+    public Task<TelegramBotApiResultDto> AnswerCallbackQueryAsync(string callbackQueryId, string? text, CancellationToken cancellationToken = default) =>
+        PostJsonAsync("answerCallbackQuery", new
+        {
+            callback_query_id = callbackQueryId,
+            text = string.IsNullOrWhiteSpace(text) ? "Готово" : text
+        }, cancellationToken);
+
+    private async Task<TelegramBotApiResultDto> SendMediaAsync(
+        string endpoint,
+        string fieldName,
+        TelegramBotMediaMessageDto message,
+        CancellationToken cancellationToken)
+    {
+        if (_options.UseLocalBotApiFileTransport && File.Exists(message.FilePath))
+        {
+            using var localContent = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["chat_id"] = message.ChatId.ToString(),
+                [fieldName] = new Uri(message.FilePath).AbsoluteUri,
+                ["caption"] = message.Caption,
+                ["parse_mode"] = message.ParseMode ?? string.Empty
+            });
+
+            using var localResponse = await CreateClient().PostAsync(endpoint, localContent, cancellationToken);
+            return await ToResultAsync(localResponse, cancellationToken);
+        }
+
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent(message.ChatId.ToString()), "chat_id");
+        content.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
+        if (!string.IsNullOrWhiteSpace(message.ParseMode))
+        {
+            content.Add(new StringContent(message.ParseMode, Encoding.UTF8), "parse_mode");
+        }
+
+        using var stream = File.OpenRead(message.FilePath);
+        using var fileContent = new StreamContent(stream);
+        content.Add(fileContent, fieldName, Path.GetFileName(message.FilePath));
+
+        using var response = await CreateClient().PostAsync(endpoint, content, cancellationToken);
+        return await ToResultAsync(response, cancellationToken);
+    }
+
+    private async Task<TelegramBotApiResultDto> PostJsonAsync(string endpoint, object payload, CancellationToken cancellationToken)
+    {
+        using var response = await CreateClient().PostAsJsonAsync(endpoint, payload, cancellationToken);
+        return await ToResultAsync(response, cancellationToken);
     }
 
     private HttpClient CreateClient()
@@ -111,96 +178,95 @@ public sealed class TelegramBotGateway(
         return client;
     }
 
-    private async Task SendMediaAsync(
-        string endpoint,
-        string fieldName,
-        TelegramBotMediaMessageDto message,
-        CancellationToken cancellationToken)
+    private static async Task<TelegramBotApiResultDto> ToResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        if (CanUseLocalFileTransport(message.FilePath))
-        {
-            var localFileUri = new Uri(message.FilePath).AbsoluteUri;
-            var localPayload = new Dictionary<string, string>
-            {
-                ["chat_id"] = message.ChatId.ToString(),
-                [fieldName] = localFileUri,
-                ["caption"] = message.Caption
-            };
+        var body = response.IsSuccessStatusCode
+            ? null
+            : await response.Content.ReadAsStringAsync(cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(message.Caption) && !string.IsNullOrWhiteSpace(message.ParseMode))
+        return new TelegramBotApiResultDto(response.IsSuccessStatusCode, response.StatusCode, body);
+    }
+
+    private static Dictionary<string, object?> CreateMediaPayload(TelegramBotMediaGroupItemDto item, string mediaReference)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["type"] = item.MediaKind,
+            ["media"] = mediaReference
+        };
+
+        if (!string.IsNullOrWhiteSpace(item.Caption))
+        {
+            payload["caption"] = item.Caption;
+            if (!string.IsNullOrWhiteSpace(item.ParseMode))
             {
-                localPayload["parse_mode"] = message.ParseMode;
+                payload["parse_mode"] = item.ParseMode;
             }
-
-            using var localContent = new FormUrlEncodedContent(localPayload);
-            using var localResponse = await CreateClient().PostAsync(endpoint, localContent, cancellationToken);
-
-            await EnsureSuccessAsync(localResponse, endpoint, message.ChatId, localFileUri, cancellationToken);
-            return;
         }
 
-        using var content = new MultipartFormDataContent();
-        content.Add(new StringContent(message.ChatId.ToString()), "chat_id");
-        content.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
-        if (!string.IsNullOrWhiteSpace(message.Caption) && !string.IsNullOrWhiteSpace(message.ParseMode))
-        {
-            content.Add(new StringContent(message.ParseMode), "parse_mode");
-        }
-
-        using var stream = File.OpenRead(message.FilePath);
-        using var fileContent = new StreamContent(stream);
-        content.Add(fileContent, fieldName, Path.GetFileName(message.FilePath));
-
-        using var response = await CreateClient().PostAsync(endpoint, content, cancellationToken);
-        await EnsureSuccessAsync(response, endpoint, message.ChatId, message.FilePath, cancellationToken);
+        return payload;
     }
 
-    private bool CanUseLocalFileTransport(string filePath) =>
-        !string.IsNullOrWhiteSpace(_options.LocalBotApiBaseUrl)
-        && Path.IsPathRooted(filePath)
-        && File.Exists(filePath);
-
-    private async Task EnsureSuccessAsync(
-        HttpResponseMessage response,
-        string endpoint,
-        long chatId,
-        string? filePath,
-        CancellationToken cancellationToken)
+    private static object CreateReplyMarkup(BotReplyMarkupDto replyMarkup)
     {
-        if (response.IsSuccessStatusCode)
+        if (replyMarkup.IsInline)
         {
-            return;
+            return new
+            {
+                inline_keyboard = replyMarkup.Buttons.Select(row =>
+                    row.Select(button => new
+                    {
+                        text = button.Text,
+                        callback_data = button.CallbackData ?? button.Text
+                    }).ToArray()).ToArray()
+            };
         }
 
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        logger.LogError(
-            "Telegram Bot API call {Endpoint} failed for chat {ChatId}. FilePath: {FilePath}. Status: {StatusCode}. Body: {Body}",
-            endpoint,
-            chatId,
-            filePath,
-            (int)response.StatusCode,
-            body);
-
-        await errorAlertService.SendAsync(
-            "Telegram Bot API call failed",
-            $"Endpoint: {endpoint}\nChatId: {chatId}\nFilePath: {filePath ?? "-"}\nStatus: {(int)response.StatusCode}\nBody: {body}",
-            null,
-            cancellationToken);
-
-        response.EnsureSuccessStatusCode();
+        return new
+        {
+            keyboard = replyMarkup.Buttons.Select(row =>
+                row.Select(button => new
+                {
+                    text = button.Text
+                }).ToArray()).ToArray(),
+            resize_keyboard = replyMarkup.ResizeKeyboard
+        };
     }
 
-    private static TelegramBotUpdateDto MapUpdate(TelegramGetUpdate update) =>
-        new(
+    private static TelegramBotUpdateDto? MapUpdate(TelegramGetUpdate update)
+    {
+        var sourceUser = update.Message?.From ?? update.CallbackQuery?.From;
+        var chatId = update.Message?.Chat?.Id ?? update.CallbackQuery?.Message?.Chat?.Id;
+        var text = update.Message?.Text;
+        var callbackQueryId = update.CallbackQuery?.Id;
+        var callbackData = update.CallbackQuery?.Data;
+
+        if (sourceUser is null)
+        {
+            return null;
+        }
+
+        return new TelegramBotUpdateDto(
             update.UpdateId,
             new BotUserSnapshotDto(
-                update.Message!.From!.Id,
-                update.Message.From.Username ?? string.Empty,
-                string.Join(' ', new[] { update.Message.From.FirstName, update.Message.From.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
-                update.Message.From.LanguageCode),
-            update.Message.Text,
-            update.Message.Chat?.Id,
+                sourceUser.Id,
+                sourceUser.Username ?? string.Empty,
+                string.Join(' ', new[] { sourceUser.FirstName, sourceUser.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
+                sourceUser.LanguageCode),
+            text,
+            callbackQueryId,
+            callbackData,
+            chatId,
             DateTimeOffset.UtcNow);
+    }
+
+    private static void DisposeStreams(IEnumerable<Stream> streams)
+    {
+        foreach (var stream in streams)
+        {
+            stream.Dispose();
+        }
+    }
 
     private sealed class TelegramApiResponse<T>
     {
@@ -218,6 +284,9 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("message")]
         public TelegramGetMessage? Message { get; set; }
+
+        [JsonPropertyName("callback_query")]
+        public TelegramCallbackQuery? CallbackQuery { get; set; }
     }
 
     private sealed class TelegramGetMessage
@@ -230,6 +299,21 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("from")]
         public TelegramGetUser? From { get; set; }
+    }
+
+    private sealed class TelegramCallbackQuery
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("from")]
+        public TelegramGetUser? From { get; set; }
+
+        [JsonPropertyName("data")]
+        public string? Data { get; set; }
+
+        [JsonPropertyName("message")]
+        public TelegramGetMessage? Message { get; set; }
     }
 
     private sealed class TelegramGetChat

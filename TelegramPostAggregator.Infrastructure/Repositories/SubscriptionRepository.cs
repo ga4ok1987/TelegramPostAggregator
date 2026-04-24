@@ -10,6 +10,14 @@ public sealed class SubscriptionRepository(AggregatorDbContext dbContext) : ISub
     public Task<UserChannelSubscription?> GetAsync(Guid userId, Guid channelId, CancellationToken cancellationToken = default) =>
         dbContext.UserChannelSubscriptions.FirstOrDefaultAsync(x => x.UserId == userId && x.ChannelId == channelId, cancellationToken);
 
+    public async Task<IReadOnlyList<UserChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+        await dbContext.UserChannelSubscriptions
+            .Include(x => x.Channel)
+            .Include(x => x.User)
+            .Where(x => x.User.TelegramUserId == telegramUserId)
+            .OrderBy(x => x.Channel.ChannelName)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
         await dbContext.UserChannelSubscriptions
             .Include(x => x.Channel)
@@ -20,12 +28,16 @@ public sealed class SubscriptionRepository(AggregatorDbContext dbContext) : ISub
         await dbContext.UserChannelSubscriptions
             .Include(x => x.User)
             .Include(x => x.Channel)
-            .Where(x => x.IsActive && x.User.IsMonitoringEnabled && !x.User.IsBlockedBot)
+            .Where(x => x.IsActive)
             .OrderBy(x => x.LastDeliveredAtUtc ?? x.CreatedAtUtc)
+            .Take(take)
             .ToListAsync(cancellationToken);
 
     public async Task AddAsync(UserChannelSubscription subscription, CancellationToken cancellationToken = default) =>
         await dbContext.UserChannelSubscriptions.AddAsync(subscription, cancellationToken);
+
+    public void Remove(UserChannelSubscription subscription) =>
+        dbContext.UserChannelSubscriptions.Remove(subscription);
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         dbContext.SaveChangesAsync(cancellationToken);

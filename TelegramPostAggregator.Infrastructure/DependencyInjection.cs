@@ -11,7 +11,6 @@ using TelegramPostAggregator.Infrastructure.Options;
 using TelegramPostAggregator.Infrastructure.Persistence;
 using TelegramPostAggregator.Infrastructure.Repositories;
 using TelegramPostAggregator.Infrastructure.Services;
-using TelegramPostAggregator.Infrastructure.Services.Monitoring;
 
 namespace TelegramPostAggregator.Infrastructure;
 
@@ -39,37 +38,27 @@ public static class DependencyInjection
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
 
         services.AddSingleton<TdLibCollectorClientManager>();
-        services.AddSingleton<IImmediateDeliverySignal, ImmediateDeliverySignal>();
-        services.AddSingleton<TdLibRealtimePostIngestionService>();
         services.AddHostedService<TdLibCollectorHostedService>();
+        services.AddHttpClient(nameof(TelegramBotPollingService));
+        services.AddHttpClient(nameof(TelegramFeedDeliveryService));
         services.AddHttpClient(nameof(TelegramBotGateway));
-        services.AddHttpClient(nameof(TelegramErrorAlertService));
-        services.AddSingleton<IErrorAlertService, TelegramErrorAlertService>();
-        services.AddSingleton<ITelegramBotGateway, TelegramBotGateway>();
         services.AddHostedService<TelegramBotPollingService>();
         services.AddHostedService<TelegramFeedDeliveryService>();
         services.AddScoped<ITelegramCollectorGateway, TdLibTelegramCollectorGateway>();
+        services.AddSingleton<ITelegramBotGateway, TelegramBotGateway>();
         services.AddScoped<IFactCheckProvider, MockFactCheckProvider>();
         services.AddScoped<CollectorBootstrapper>();
 
         services.AddScoped<CollectorSubscriptionJob>();
         services.AddScoped<CollectorPostSyncJob>();
         services.AddScoped<FactCheckDispatchJob>();
+        services.AddScoped<TdLibMediaCacheCleanupJob>();
 
         services.AddHangfire(configuration => configuration
             .UseSimpleAssemblyNameTypeSerializer()
             .UseRecommendedSerializerSettings()
             .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(connectionString)));
         services.AddHangfireServer();
-
-        return services;
-    }
-
-    public static IServiceCollection AddMonitoringInfrastructure(this IServiceCollection services)
-    {
-        services.AddHttpClient(nameof(HttpBotStatusProbe));
-        services.AddSingleton<IBotStatusProbe, HttpBotStatusProbe>();
-        services.AddSingleton<IBotStatusProbe, HeartbeatBotStatusProbe>();
 
         return services;
     }
@@ -99,5 +88,10 @@ public static class DependencyInjection
             "fact-check-dispatch",
             job => job.RunAsync(CancellationToken.None),
             "*/3 * * * *");
+
+        recurringJobs.AddOrUpdate<TdLibMediaCacheCleanupJob>(
+            "tdlib-media-cache-cleanup",
+            job => job.RunAsync(CancellationToken.None),
+            "15 * * * *");
     }
 }

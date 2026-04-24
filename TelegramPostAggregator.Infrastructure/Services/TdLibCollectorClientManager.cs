@@ -13,17 +13,12 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 public sealed class TdLibCollectorClientManager : IAsyncDisposable
 {
     private readonly TdLibOptions _options;
-    private readonly TdLibRealtimePostIngestionService _realtimePostIngestionService;
     private readonly ILogger<TdLibCollectorClientManager> _logger;
     private readonly ConcurrentDictionary<Guid, CollectorRuntime> _clients = new();
 
-    public TdLibCollectorClientManager(
-        IOptions<TdLibOptions> options,
-        TdLibRealtimePostIngestionService realtimePostIngestionService,
-        ILogger<TdLibCollectorClientManager> logger)
+    public TdLibCollectorClientManager(IOptions<TdLibOptions> options, ILogger<TdLibCollectorClientManager> logger)
     {
         _options = options.Value;
-        _realtimePostIngestionService = realtimePostIngestionService;
         _logger = logger;
     }
 
@@ -140,6 +135,26 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
         throw new InvalidOperationException($"TDLib collector isn't ready. Current state: {runtime.AuthorizationStateName ?? "unknown"}");
     }
 
+    public async Task<string?> DownloadFileAndGetPathAsync(
+        CollectorAccount collectorAccount,
+        int fileId,
+        CancellationToken cancellationToken)
+    {
+        var client = await GetAuthorizedClientAsync(collectorAccount, cancellationToken);
+        var downloaded = await client.ExecuteAsync(new TdApi.DownloadFile
+        {
+            FileId = fileId,
+            Priority = 16,
+            Offset = 0,
+            Limit = 0,
+            Synchronous = true
+        });
+
+        return downloaded.Local.IsDownloadingCompleted && !string.IsNullOrWhiteSpace(downloaded.Local.Path)
+            ? downloaded.Local.Path
+            : null;
+    }
+
     private async Task<CollectorRuntime> GetOrCreateRuntimeAsync(CollectorAccount collectorAccount, CancellationToken cancellationToken)
     {
         if (_clients.TryGetValue(collectorAccount.Id, out var existing))
@@ -180,6 +195,12 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                 return;
             }
 
+            if (!runtime.LogVerbosityConfigured)
+            {
+                await runtime.Client.ExecuteAsync(new TdApi.SetLogVerbosityLevel { NewVerbosityLevel = 1 });
+                runtime.LogVerbosityConfigured = true;
+            }
+
             runtime.UpdatedAtUtc = DateTimeOffset.UtcNow;
             var state = await runtime.Client.ExecuteAsync(new TdApi.GetAuthorizationState());
             await HandleAuthorizationStateAsync(runtime, collectorAccount, state);
@@ -202,16 +223,6 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                     break;
                 case TdApi.Update.UpdateConnectionState:
                     runtime.UpdatedAtUtc = DateTimeOffset.UtcNow;
-                    break;
-                case TdApi.Update.UpdateNewMessage newMessage:
-                    if (runtime.IsReady)
-                    {
-                        await _realtimePostIngestionService.HandleNewMessageAsync(
-                            runtime.Client,
-                            collectorAccount,
-                            newMessage.Message);
-                    }
-
                     break;
             }
         }
@@ -347,6 +358,7 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
         public string? LastError { get; set; }
         public bool IsReady { get; set; }
         public bool IsInitialized { get; set; }
+        public bool LogVerbosityConfigured { get; set; }
         public bool TdlibParametersSubmitted { get; set; }
         public bool PhoneNumberSubmitted { get; set; }
         public DateTimeOffset? UpdatedAtUtc { get; set; }

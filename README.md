@@ -54,7 +54,8 @@ TelegramPostAggregator.sln
 - per-user aggregated feed
 - fact-check request queue and async processing
 - Hangfire recurring jobs for collector and fact-check workers
-- long polling Telegram bot transport with optional local Bot API server
+- long polling Telegram bot transport with optional webhook endpoint
+- optional local Bot API server support for larger media delivery
 
 ## Important architecture decisions
 
@@ -73,7 +74,7 @@ TelegramPostAggregator.sln
 
 ### Deduplication
 
-- Posts are normalized by removing URLs, collapsing whitespace, and lowercasing.
+- Posts are normalized by collapsing whitespace and lowercasing.
 - Exact duplicates are detected by SHA-256 hash of normalized text.
 - `PostDuplicateCluster` is already present for future near-duplicate grouping logic.
 
@@ -85,7 +86,9 @@ TelegramPostAggregator.sln
 - `DELETE /api/channels`
 - `GET /api/feed/{telegramUserId}?take=50&skip=0`
 - `POST /api/fact-checks`
+- `POST /api/telegram/webhook`
 - `GET /api/health`
+- `GET /api/health/status`
 - `GET /jobs`
 
 ## Configuration
@@ -100,6 +103,7 @@ Key sections:
 - `TdLib`
 - `FactCheck`
 - `TelegramBot`
+- `Operations`
 
 Minimal PostgreSQL connection string:
 
@@ -127,66 +131,6 @@ dotnet dotnet-ef database update \
 dotnet run --project TelegramPostAggregator.Api
 ```
 
-## Monitoring website
-
-The solution also includes `TelegramPostAggregator.Monitoring.Web`, a dedicated bot monitoring website.
-
-### Architecture
-
-- `TelegramPostAggregator.Monitoring.Web`: Blazor Server UI with MVVM-style `ViewModel`s
-- `TelegramPostAggregator.Application`: monitoring contracts, DTOs, options, orchestration service
-- `TelegramPostAggregator.Infrastructure`: concrete probes such as HTTP and heartbeat file checks
-
-### Authentication
-
-- Google OAuth is enabled in `TelegramPostAggregator.Monitoring.Web/appsettings.json`
-- access is restricted to `hachkevych.serhii@gmail.com`
-
-Set the Google credentials before running:
-
-```json
-"Authentication": {
-  "Google": {
-    "ClientId": "your-google-client-id",
-    "ClientSecret": "your-google-client-secret"
-  }
-}
-```
-
-### Bot configuration
-
-Configure bots in `TelegramPostAggregator.Monitoring.Web/appsettings.json` under `BotMonitoring`.
-
-Supported probe types:
-
-- `http`: performs a GET request to an HTTP health endpoint
-- `heartbeat`: checks file freshness based on `HeartbeatFilePath` and `StaleAfterSeconds`
-
-### Run the monitoring website
-
-```bash
-dotnet run --project TelegramPostAggregator.Monitoring.Web
-```
-
-Open the site in a browser and sign in with the allowed Google account.
-
-### Current production shape
-
-The monitoring site is now configured around a single bot:
-
-- `channelsMonitorBot`
-
-The bot can publish a heartbeat file by setting:
-
-```env
-HEARTBEAT_FILE_PATH=/var/run/channels-monitor/channels-monitor.heartbeat
-```
-
-Ready-to-adapt server templates were added here:
-
-- `ops/systemd/channels-monitoring-web.service`
-- `ops/nginx/channels-monitoring.conf`
-
 ## Run with Docker Compose
 
 Create a `.env` file next to `docker-compose.yml` from `.env.example`:
@@ -198,8 +142,6 @@ COLLECTOR_PHONE_NUMBER=+380XXXXXXXXX
 BOT_TOKEN=your_bot_token
 BOT_USERNAME=ChannelsMonitorBot
 LOCAL_BOT_API_BASE_URL=http://telegram-bot-api:8081
-BOT_API_TELEGRAM_API_ID=123456
-BOT_API_TELEGRAM_API_HASH=your_api_hash
 ```
 
 Start services:
@@ -211,10 +153,7 @@ docker compose up --build
 API will be available only locally on `http://127.0.0.1:8080`.
 Telegram bot interaction works through long polling, so no public webhook port is required.
 
-When `LOCAL_BOT_API_BASE_URL` is set, the backend uses a local `telegram-bot-api` server instead of `https://api.telegram.org`. This enables local-mode Bot API features such as larger uploads and unlimited downloads when the Bot API server runs with `--local`.
-The `tdlib-files` volume is mounted into both `api` and `telegram-bot-api`, so large photos and videos can be sent by local file path instead of streaming the whole file through multipart upload.
-
-Before moving an existing polling bot from the public Bot API to a local Bot API server, call `logOut` against `https://api.telegram.org` once for that bot token, then start the local Bot API server.
+`/jobs` is disabled by default outside development. To expose it intentionally, set `Operations:HangfireDashboard:Enabled=true` and configure Basic Auth credentials.
 
 ## Collector authentication flow
 
@@ -267,6 +206,7 @@ Recurring Hangfire jobs are registered automatically on startup:
 - `collector-subscriptions`
 - `collector-sync-posts`
 - `fact-check-dispatch`
+- `tdlib-media-cache-cleanup`
 
 ## Current live-integration gaps
 
