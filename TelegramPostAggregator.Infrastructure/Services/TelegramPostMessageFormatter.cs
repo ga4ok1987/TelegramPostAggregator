@@ -2,8 +2,8 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 
 public static class TelegramPostMessageFormatter
 {
-    private const int MessageTextLimit = 3500;
-    private const int CaptionTextLimit = 1000;
+    private const int MessageTextLimit = 4096;
+    private const int CaptionTextLimit = 1024;
     private const string BlockSeparator = "\n\n";
     private static readonly string[] EmptyMediaTextMarkers =
     [
@@ -128,6 +128,20 @@ public static class TelegramPostMessageFormatter
             : SplitOverflowHtml(remainingBody, footer);
 
         return new CaptionRenderResult(caption, overflowMessages);
+    }
+
+    public static CaptionRenderResult FormatMediaDeliveryHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null)
+    {
+        var fullCaption = FormatCaptionPartsHtml(channelName, rawText, originalPostUrl, channelUrl);
+        if (fullCaption.OverflowMessages.Count == 0)
+        {
+            return fullCaption;
+        }
+
+        var header = BuildHeaderHtml(channelName, channelUrl);
+        return new CaptionRenderResult(
+            header,
+            FormatMessagePartsHtml(channelName, rawText, originalPostUrl, channelUrl));
     }
 
     private static string ComposeFullText(string channelName, string rawText, string? originalPostUrl)

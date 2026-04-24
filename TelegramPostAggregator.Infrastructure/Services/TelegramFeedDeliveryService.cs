@@ -22,7 +22,7 @@ public sealed class TelegramFeedDeliveryService(
     TdLibCollectorClientManager tdLibCollectorClientManager,
     ILogger<TelegramFeedDeliveryService> logger) : BackgroundService
 {
-    private const int MessageTextLimit = 3500;
+    private const int MessageTextLimit = 4096;
     private const int MediaCaptionLimit = 1024;
     private const string HtmlParseMode = "HTML";
     private static readonly TimeSpan AlbumStabilizationWindow = TimeSpan.FromSeconds(4);
@@ -187,7 +187,7 @@ public sealed class TelegramFeedDeliveryService(
     {
         var primaryPost = posts[0];
         var channelUrl = ResolveChannelLink(primaryPost.Channel.UsernameOrInviteLink, primaryPost.OriginalPostUrl);
-        var captionRender = TelegramPostMessageFormatter.FormatCaptionPartsHtml(
+        var captionRender = TelegramPostMessageFormatter.FormatMediaDeliveryHtml(
             primaryPost.Channel.ChannelName,
             primaryPost.RawText,
             primaryPost.OriginalPostUrl,
@@ -210,7 +210,11 @@ public sealed class TelegramFeedDeliveryService(
         }
 
         var post = primaryPost;
-        var message = FormatMessage(post.Channel.ChannelName, post.Channel.UsernameOrInviteLink, post.RawText, post.OriginalPostUrl, MessageTextLimit);
+        var messageParts = TelegramPostMessageFormatter.FormatMessagePartsHtml(
+            post.Channel.ChannelName,
+            post.RawText,
+            post.OriginalPostUrl,
+            channelUrl);
         var metadata = ParseMetadata(post.MetadataJson);
 
         if (IsIgnorablePost(post, metadata))
@@ -261,7 +265,7 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
-        return await telegramBotGateway.SendMessageAsync(new TelegramBotOutboundMessageDto(chatId, message, ParseMode: HtmlParseMode), cancellationToken);
+        return await SendOverflowMessagesAsync(chatId, messageParts, cancellationToken);
     }
 
     private Task<TelegramBotApiResultDto> SendTextFallbackAsync(
@@ -278,9 +282,13 @@ public sealed class TelegramFeedDeliveryService(
         var fallbackText = string.IsNullOrWhiteSpace(firstPost.RawText)
             ? suffix
             : $"{firstPost.RawText.Trim()}{Environment.NewLine}{Environment.NewLine}{suffix}";
-        var message = FormatMessage(firstPost.Channel.ChannelName, firstPost.Channel.UsernameOrInviteLink, fallbackText, originalPostUrl, MessageTextLimit);
+        var messages = TelegramPostMessageFormatter.FormatMessagePartsHtml(
+            firstPost.Channel.ChannelName,
+            fallbackText,
+            originalPostUrl,
+            ResolveChannelLink(firstPost.Channel.UsernameOrInviteLink, originalPostUrl));
 
-        return telegramBotGateway.SendMessageAsync(new TelegramBotOutboundMessageDto(chatId, message, ParseMode: HtmlParseMode), cancellationToken);
+        return SendOverflowMessagesAsync(chatId, messages, cancellationToken);
     }
 
     private async Task<TelegramBotApiResultDto?> SendMediaGroupAsync(
@@ -369,29 +377,6 @@ public sealed class TelegramFeedDeliveryService(
         }
 
         return post.RawText.StartsWith("(messageGiveaway", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string FormatMessage(string channelName, string? channelReference, string rawText, string? originalPostUrl, int maxLength)
-    {
-        var text = string.IsNullOrWhiteSpace(rawText) ? "(no text)" : rawText.Trim();
-        if (text.Length > maxLength)
-        {
-            text = text[..Math.Max(0, maxLength - 3)] + "...";
-        }
-
-        var safeChannelName = HtmlEncoder.Default.Encode(channelName.Trim());
-        var channelLink = ResolveChannelLink(channelReference, originalPostUrl);
-        var header = string.IsNullOrWhiteSpace(channelLink)
-            ? safeChannelName
-            : $"<a href=\"{HtmlEncoder.Default.Encode(channelLink)}\">{safeChannelName}</a>";
-        var safeText = HtmlEncoder.Default.Encode(text);
-        var safePostUrl = string.IsNullOrWhiteSpace(originalPostUrl)
-            ? null
-            : HtmlEncoder.Default.Encode(originalPostUrl);
-
-        return safePostUrl is null
-            ? $"{header}{Environment.NewLine}{Environment.NewLine}{safeText}"
-            : $"{header}{Environment.NewLine}{Environment.NewLine}{safeText}{Environment.NewLine}{Environment.NewLine}{safePostUrl}";
     }
 
     private static string? ResolveChannelLink(string? channelReference, string? originalPostUrl)
