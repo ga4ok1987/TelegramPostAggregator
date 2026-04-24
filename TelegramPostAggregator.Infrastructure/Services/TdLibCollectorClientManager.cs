@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using TdLib;
+using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Domain.Entities;
 using TelegramPostAggregator.Infrastructure.Options;
@@ -14,12 +15,20 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
 {
     private readonly TdLibOptions _options;
     private readonly ILogger<TdLibCollectorClientManager> _logger;
+    private readonly TdLibRealtimePostIngestionService _realtimePostIngestionService;
+    private readonly IErrorAlertService _errorAlertService;
     private readonly ConcurrentDictionary<Guid, CollectorRuntime> _clients = new();
 
-    public TdLibCollectorClientManager(IOptions<TdLibOptions> options, ILogger<TdLibCollectorClientManager> logger)
+    public TdLibCollectorClientManager(
+        IOptions<TdLibOptions> options,
+        ILogger<TdLibCollectorClientManager> logger,
+        TdLibRealtimePostIngestionService realtimePostIngestionService,
+        IErrorAlertService errorAlertService)
     {
         _options = options.Value;
         _logger = logger;
+        _realtimePostIngestionService = realtimePostIngestionService;
+        _errorAlertService = errorAlertService;
     }
 
     public async Task<CollectorAuthStatusDto> InitializeAsync(CollectorAccount collectorAccount, CancellationToken cancellationToken)
@@ -224,6 +233,12 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                 case TdApi.Update.UpdateConnectionState:
                     runtime.UpdatedAtUtc = DateTimeOffset.UtcNow;
                     break;
+                case TdApi.Update.UpdateNewMessage newMessage when runtime.IsReady:
+                    await _realtimePostIngestionService.HandleNewMessageAsync(
+                        runtime.Client,
+                        collectorAccount,
+                        newMessage.Message);
+                    break;
             }
         }
         catch (Exception exception)
@@ -232,6 +247,10 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
             runtime.UpdatedAtUtc = DateTimeOffset.UtcNow;
             runtime.IsReady = false;
             _logger.LogWarning(exception, "TDLib collector auth flow failed for account {CollectorAccountKey}", collectorAccount.ExternalAccountKey);
+            await _errorAlertService.SendAsync(
+                "TDLib collector update handling failed",
+                $"Collector: {collectorAccount.ExternalAccountKey}",
+                exception);
         }
     }
 

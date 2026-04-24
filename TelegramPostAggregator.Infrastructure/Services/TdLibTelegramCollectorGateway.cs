@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using System.Text.Json;
 using TdLib;
 using TelegramPostAggregator.Application.Abstractions.External;
+using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Domain.Entities;
 using TelegramPostAggregator.Infrastructure.Options;
@@ -13,9 +14,12 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 public sealed class TdLibTelegramCollectorGateway(
     IOptions<TdLibOptions> options,
     TdLibCollectorClientManager clientManager,
+    IErrorAlertService errorAlertService,
     ILogger<TdLibTelegramCollectorGateway> logger) : ITelegramCollectorGateway
 {
     private static readonly Regex TelegramLinkRegex = new(@"^(?:https?://)?t\.me/(?<slug>[^/?#]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private const int HistoryPageSize = 100;
+    private const int MaxHistoryPages = 20;
 
     public Task<CollectorAuthStatusDto> GetAuthorizationStatusAsync(CollectorAccount collectorAccount, CancellationToken cancellationToken = default) =>
         clientManager.GetStatusAsync(collectorAccount, cancellationToken);
@@ -70,6 +74,11 @@ public sealed class TdLibTelegramCollectorGateway(
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to join channel {ChannelReference}", channel.UsernameOrInviteLink);
+            await errorAlertService.SendAsync(
+                "Failed to join channel",
+                $"Channel: {channel.UsernameOrInviteLink}",
+                exception,
+                cancellationToken);
             return new CollectorJoinResultDto(false, null, null, exception.Message);
         }
     }
@@ -86,31 +95,57 @@ public sealed class TdLibTelegramCollectorGateway(
             var chat = await ResolveChatAsync(client, channel, cancellationToken);
             await client.ExecuteAsync(new TdApi.OpenChat { ChatId = chat.Id });
 
-            var history = await client.ExecuteAsync(new TdApi.GetChatHistory
-            {
-                ChatId = chat.Id,
-                FromMessageId = 0,
-                Offset = 0,
-                Limit = 100,
-                OnlyLocal = false
-            });
-
             var posts = new List<CollectedPostDto>();
-            foreach (var message in history.Messages_.Where(message => message.IsChannelPost).OrderBy(message => message.Date))
+            var seenMessageIds = new HashSet<long>();
+            long fromMessageId = 0;
+
+            for (var page = 0; page < MaxHistoryPages; page++)
             {
-                var publishedAtUtc = DateTimeOffset.FromUnixTimeSeconds(message.Date);
-                if (sinceUtc is not null && publishedAtUtc <= sinceUtc.Value)
+                var history = await client.ExecuteAsync(new TdApi.GetChatHistory
                 {
-                    continue;
+                    ChatId = chat.Id,
+                    FromMessageId = fromMessageId,
+                    Offset = fromMessageId == 0 ? 0 : -1,
+                    Limit = HistoryPageSize,
+                    OnlyLocal = false
+                });
+
+                if (history.Messages_.Count() == 0)
+                {
+                    break;
                 }
 
-                if (IsIgnorableContent(message.Content))
+                var reachedSinceBoundary = false;
+                foreach (var message in history.Messages_.Where(message => message.IsChannelPost).OrderBy(message => message.Date))
                 {
-                    continue;
+                    if (!seenMessageIds.Add(message.Id))
+                    {
+                        continue;
+                    }
+
+                    var publishedAtUtc = DateTimeOffset.FromUnixTimeSeconds(message.Date);
+                    if (sinceUtc is not null && publishedAtUtc <= sinceUtc.Value)
+                    {
+                        reachedSinceBoundary = true;
+                        continue;
+                    }
+
+                    if (IsIgnorableContent(message.Content))
+                    {
+                        continue;
+                    }
+
+                    var post = await ToCollectedPostAsync(client, channel, chat.Id, message, cancellationToken);
+                    posts.Add(post);
                 }
 
-                var post = await ToCollectedPostAsync(client, channel, chat.Id, message, cancellationToken);
-                posts.Add(post);
+                var oldestMessageId = history.Messages_.Min(message => message.Id);
+                if (reachedSinceBoundary || history.Messages_.Count() < HistoryPageSize || oldestMessageId <= 0)
+                {
+                    break;
+                }
+
+                fromMessageId = oldestMessageId;
             }
 
             return posts;
@@ -118,6 +153,11 @@ public sealed class TdLibTelegramCollectorGateway(
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to fetch recent posts for channel {ChannelReference}", channel.UsernameOrInviteLink);
+            await errorAlertService.SendAsync(
+                "Failed to fetch recent posts",
+                $"Channel: {channel.UsernameOrInviteLink}",
+                exception,
+                cancellationToken);
             return Array.Empty<CollectedPostDto>();
         }
     }

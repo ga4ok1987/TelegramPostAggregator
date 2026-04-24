@@ -15,6 +15,21 @@ services:
       timeout: 5s
       retries: 10
 
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram-post-aggregator-bot-api
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${BOT_API_TELEGRAM_API_ID:-0}
+      TELEGRAM_API_HASH: ${BOT_API_TELEGRAM_API_HASH:-}
+    command:
+      - --local
+      - --http-port=8081
+      - --dir=/var/lib/telegram-bot-api
+    volumes:
+      - bot-api-data:/var/lib/telegram-bot-api
+      - tdlib-files:/var/lib/telegram-post-aggregator/tdlib-files:ro
+
   api:
     build:
       context: .
@@ -24,12 +39,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      telegram-bot-api:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Database__ConnectionString: Host=postgres;Port=5432;Database=telegram_post_aggregator;Username=postgres;Password=postgres
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=telegram_post_aggregator;Username=postgres;Password=postgres
       TelegramBot__BotToken: ${BOT_TOKEN:-}
       TelegramBot__BotUsername: ${BOT_USERNAME:-ChannelsMonitorBot}
+      TelegramBot__AlertChatId: ${ALERT_CHAT_ID:-}
+      TelegramBot__LocalBotApiBaseUrl: ${LOCAL_BOT_API_BASE_URL:-http://telegram-bot-api:8081}
+      TelegramBot__UseLocalBotApiFileTransport: ${USE_LOCAL_BOT_API_FILE_TRANSPORT:-true}
       Collector__UseTdLibSimulation: ${TDLIB_USE_SIMULATION:-true}
       CollectorBootstrap__Name: primary-collector
       CollectorBootstrap__ExternalAccountKey: collector-1
@@ -52,5 +72,6 @@ services:
 
 volumes:
   postgres-data:
+  bot-api-data:
   tdlib-data:
   tdlib-files:

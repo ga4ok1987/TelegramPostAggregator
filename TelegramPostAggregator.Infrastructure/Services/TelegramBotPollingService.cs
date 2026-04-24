@@ -11,6 +11,7 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 
 public sealed class TelegramBotPollingService(
     ITelegramBotGateway telegramBotGateway,
+    IErrorAlertService errorAlertService,
     IServiceScopeFactory scopeFactory,
     IOptions<TelegramBotOptions> options,
     ILogger<TelegramBotPollingService> logger) : BackgroundService
@@ -44,6 +45,11 @@ public sealed class TelegramBotPollingService(
             catch (Exception exception)
             {
                 logger.LogError(exception, "Telegram bot polling iteration failed.");
+                await errorAlertService.SendAsync(
+                    "Telegram bot polling failed",
+                    "Polling loop failed while reading bot updates.",
+                    exception,
+                    stoppingToken);
                 await Task.Delay(_options.PollingDelayMilliseconds, stoppingToken);
             }
         }

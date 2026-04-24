@@ -8,12 +8,15 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
+using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Infrastructure.Options;
 
 namespace TelegramPostAggregator.Infrastructure.Services;
 
 public sealed class TelegramFeedDeliveryService(
     ITelegramBotGateway telegramBotGateway,
+    IErrorAlertService errorAlertService,
+    IImmediateDeliverySignal immediateDeliverySignal,
     IServiceScopeFactory scopeFactory,
     IOptions<TelegramBotOptions> options,
     TdLibCollectorClientManager tdLibCollectorClientManager,
@@ -22,6 +25,7 @@ public sealed class TelegramFeedDeliveryService(
     private const int MessageTextLimit = 3500;
     private const int MediaCaptionLimit = 1024;
     private const string HtmlParseMode = "HTML";
+    private static readonly TimeSpan AlbumStabilizationWindow = TimeSpan.FromSeconds(4);
     private readonly TelegramBotOptions _options = options.Value;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -45,9 +49,14 @@ public sealed class TelegramFeedDeliveryService(
             catch (Exception exception)
             {
                 logger.LogError(exception, "Telegram feed delivery iteration failed.");
+                await errorAlertService.SendAsync(
+                    "Feed delivery iteration failed",
+                    "Telegram feed delivery loop failed.",
+                    exception,
+                    stoppingToken);
             }
 
-            await Task.Delay(_options.DeliveryDelayMilliseconds, stoppingToken);
+            await immediateDeliverySignal.WaitAsync(TimeSpan.FromMilliseconds(_options.DeliveryDelayMilliseconds), stoppingToken);
         }
     }
 
@@ -98,6 +107,11 @@ public sealed class TelegramFeedDeliveryService(
                     subscriptionToken.ThrowIfCancellationRequested();
 
                     var post = newPosts[index];
+                    if (IsAlbumPostStillArriving(post))
+                    {
+                        break;
+                    }
+
                     var groupedPosts = CollectMediaGroupPosts(newPosts, index);
                     var deliveredPosts = groupedPosts.Count > 0 ? groupedPosts : [post];
                     var checkpointPost = deliveredPosts[^1];
@@ -142,6 +156,9 @@ public sealed class TelegramFeedDeliveryService(
                     "Delivery time limit reached for subscription {SubscriptionId} and chat {ChatId}. Moving it to the back of the queue.",
                     subscription.Id,
                     subscription.User.TelegramUserId);
+                await errorAlertService.SendAsync(
+                    "Delivery time limit reached",
+                    $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}");
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -153,6 +170,11 @@ public sealed class TelegramFeedDeliveryService(
                     "Failed to deliver posts for subscription {SubscriptionId} and chat {ChatId}. Moving it to the back of the queue.",
                     subscription.Id,
                     subscription.User.TelegramUserId);
+                await errorAlertService.SendAsync(
+                    "Failed to deliver posts",
+                    $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}",
+                    exception,
+                    cancellationToken);
             }
         }
 
@@ -405,7 +427,11 @@ public sealed class TelegramFeedDeliveryService(
         return groupedPosts;
     }
 
-    private Task<bool> HandleDeliveryFailureAsync(
+    private static bool IsAlbumPostStillArriving(Domain.Entities.TelegramPost post) =>
+        !string.IsNullOrWhiteSpace(post.MediaGroupId) &&
+        DateTimeOffset.UtcNow - post.PublishedAtUtc < AlbumStabilizationWindow;
+
+    private async Task<bool> HandleDeliveryFailureAsync(
         TelegramBotApiResultDto response,
         Domain.Entities.UserChannelSubscription subscription,
         Domain.Entities.TelegramPost post,
@@ -414,7 +440,7 @@ public sealed class TelegramFeedDeliveryService(
         var responseBody = response.ResponseBody ?? string.Empty;
         var now = DateTimeOffset.UtcNow;
 
-        if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500)
+        if (IsUnrecoverableClientError(response.StatusCode, responseBody))
         {
             subscription.LastDeliveredTelegramMessageId = post.TelegramMessageId;
             subscription.LastDeliveredAtUtc = now;
@@ -428,7 +454,11 @@ public sealed class TelegramFeedDeliveryService(
                 (int)response.StatusCode,
                 responseBody);
 
-            return Task.FromResult(true);
+            await errorAlertService.SendAsync(
+                "Skipping undeliverable post",
+                $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}\nPostId: {post.Id}\nStatusCode: {(int)response.StatusCode}\nResponse: {responseBody}",
+                cancellationToken: cancellationToken);
+            return true;
         }
 
         logger.LogError(
@@ -439,7 +469,31 @@ public sealed class TelegramFeedDeliveryService(
             post.Id,
             responseBody);
 
-        return Task.FromResult(false);
+        await errorAlertService.SendAsync(
+            "Telegram delivery failed",
+            $"SubscriptionId: {subscription.Id}\nChatId: {subscription.User.TelegramUserId}\nPostId: {post.Id}\nStatusCode: {(int)response.StatusCode}\nResponse: {responseBody}",
+            cancellationToken: cancellationToken);
+        return false;
+    }
+
+    private static bool IsUnrecoverableClientError(HttpStatusCode statusCode, string responseBody)
+    {
+        if (statusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
+        {
+            return true;
+        }
+
+        if (statusCode != HttpStatusCode.BadRequest)
+        {
+            return false;
+        }
+
+        var body = responseBody.ToLowerInvariant();
+        return body.Contains("bot was blocked by the user", StringComparison.Ordinal) ||
+               body.Contains("user is deactivated", StringComparison.Ordinal) ||
+               body.Contains("chat not found", StringComparison.Ordinal) ||
+               body.Contains("group chat was upgraded", StringComparison.Ordinal) ||
+               body.Contains("have no rights to send", StringComparison.Ordinal);
     }
 
     private sealed class PostMetadata

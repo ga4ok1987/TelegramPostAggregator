@@ -38,14 +38,18 @@ public static class DependencyInjection
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
 
         services.AddSingleton<TdLibCollectorClientManager>();
+        services.AddSingleton<IImmediateDeliverySignal, ImmediateDeliverySignal>();
+        services.AddSingleton<TdLibRealtimePostIngestionService>();
         services.AddHostedService<TdLibCollectorHostedService>();
         services.AddHttpClient(nameof(TelegramBotPollingService));
         services.AddHttpClient(nameof(TelegramFeedDeliveryService));
         services.AddHttpClient(nameof(TelegramBotGateway));
+        services.AddHttpClient(nameof(TelegramErrorAlertService));
         services.AddHostedService<TelegramBotPollingService>();
         services.AddHostedService<TelegramFeedDeliveryService>();
         services.AddScoped<ITelegramCollectorGateway, TdLibTelegramCollectorGateway>();
         services.AddSingleton<ITelegramBotGateway, TelegramBotGateway>();
+        services.AddSingleton<IErrorAlertService, TelegramErrorAlertService>();
         services.AddScoped<IFactCheckProvider, MockFactCheckProvider>();
         services.AddScoped<CollectorBootstrapper>();
 
