@@ -243,6 +243,11 @@ public sealed class TdLibRealtimePostIngestionService(
                 metadata.MediaFileId = audio.Audio.Audio_.Id;
                 metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, audio.Audio.Audio_, cancellationToken);
                 break;
+            case TdApi.MessageContent.MessageVoiceNote voiceNote:
+                metadata.MediaKind = "voice";
+                metadata.MediaFileId = voiceNote.VoiceNote.Voice.Id;
+                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, voiceNote.VoiceNote.Voice, cancellationToken);
+                break;
         }
 
         return PostMediaMetadata.Serialize(metadata);

@@ -389,6 +389,8 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                 video.Video.Video_.Id,
             TdApi.MessageContent.MessageAudio audio when string.Equals(mediaKind, "audio", StringComparison.OrdinalIgnoreCase) =>
                 audio.Audio.Audio_.Id,
+            TdApi.MessageContent.MessageVoiceNote voiceNote when string.Equals(mediaKind, "voice", StringComparison.OrdinalIgnoreCase) =>
+                voiceNote.VoiceNote.Voice.Id,
             _ => null
         };
 

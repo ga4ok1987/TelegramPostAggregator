@@ -328,6 +328,10 @@ public sealed class TdLibTelegramCollectorGateway(
                 metadata.MediaKind = "audio";
                 metadata.MediaFileId = audio.Audio.Audio_.Id;
                 break;
+            case TdApi.MessageContent.MessageVoiceNote voiceNote:
+                metadata.MediaKind = "voice";
+                metadata.MediaFileId = voiceNote.VoiceNote.Voice.Id;
+                break;
         }
 
         return Task.FromResult(JsonSerializer.Serialize(metadata));

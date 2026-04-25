@@ -297,6 +297,25 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
+        if (metadata?.MediaKind == "voice")
+        {
+            var mediaLocalPath = await EnsureMediaLocalPathAsync(post, metadata, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(mediaLocalPath) && File.Exists(mediaLocalPath))
+            {
+                var response = await telegramBotGateway.SendVoiceAsync(
+                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, captionRender.Caption, "voice", HtmlParseMode),
+                    cancellationToken);
+                if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                {
+                    return await SendTextFallbackAsync(chatId, posts, cancellationToken);
+                }
+
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
+            }
+        }
+
         return await SendOverflowMessagesAsync(chatId, messageParts, cancellationToken);
     }
 
