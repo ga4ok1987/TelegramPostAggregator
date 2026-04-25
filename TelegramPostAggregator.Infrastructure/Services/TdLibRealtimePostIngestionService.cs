@@ -32,7 +32,7 @@ public sealed class TdLibRealtimePostIngestionService(
             return;
         }
 
-        if (IsIgnorableContent(message.Content))
+        if (TelegramContentClassifier.IsIgnorableContent(message.Content))
         {
             return;
         }
@@ -248,6 +248,21 @@ public sealed class TdLibRealtimePostIngestionService(
                 metadata.MediaFileId = voiceNote.VoiceNote.Voice.Id;
                 metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, voiceNote.VoiceNote.Voice, cancellationToken);
                 break;
+            case TdApi.MessageContent.MessageDocument document:
+                metadata.MediaKind = "document";
+                metadata.MediaFileId = document.Document.Document_.Id;
+                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, document.Document.Document_, cancellationToken);
+                break;
+            case TdApi.MessageContent.MessageAnimation animation:
+                metadata.MediaKind = "animation";
+                metadata.MediaFileId = animation.Animation.Animation_.Id;
+                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, animation.Animation.Animation_, cancellationToken);
+                break;
+            case TdApi.MessageContent.MessageVideoNote videoNote:
+                metadata.MediaKind = "video_note";
+                metadata.MediaFileId = videoNote.VideoNote.Video.Id;
+                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, videoNote.VideoNote.Video, cancellationToken);
+                break;
         }
 
         return PostMediaMetadata.Serialize(metadata);
@@ -307,8 +322,4 @@ public sealed class TdLibRealtimePostIngestionService(
         exception.InnerException is PostgresException postgresException &&
         postgresException.SqlState == PostgresErrorCodes.UniqueViolation &&
         string.Equals(postgresException.ConstraintName, "IX_telegram_posts_ChannelId_TelegramMessageId", StringComparison.Ordinal);
-
-    private static bool IsIgnorableContent(TdApi.MessageContent content) =>
-        content.DataType.StartsWith("messageGiveaway", StringComparison.Ordinal) ||
-        string.Equals(content.DataType, "messagePinMessage", StringComparison.Ordinal);
 }

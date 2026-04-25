@@ -130,7 +130,7 @@ public sealed class TdLibTelegramCollectorGateway(
                         continue;
                     }
 
-                    if (IsIgnorableContent(message.Content))
+                    if (TelegramContentClassifier.IsIgnorableContent(message.Content))
                     {
                         continue;
                     }
@@ -234,10 +234,6 @@ public sealed class TdLibTelegramCollectorGateway(
     private static bool HasMedia(TdApi.MessageContent content) =>
         content is not TdApi.MessageContent.MessageText;
 
-    private static bool IsIgnorableContent(TdApi.MessageContent content) =>
-        content.DataType.StartsWith("messageGiveaway", StringComparison.Ordinal) ||
-        string.Equals(content.DataType, "messagePinMessage", StringComparison.Ordinal);
-
     private static string? GetMediaGroupId(TdApi.Message message) =>
         message.MediaAlbumId == 0 ? null : message.MediaAlbumId.ToString();
 
@@ -331,6 +327,18 @@ public sealed class TdLibTelegramCollectorGateway(
             case TdApi.MessageContent.MessageVoiceNote voiceNote:
                 metadata.MediaKind = "voice";
                 metadata.MediaFileId = voiceNote.VoiceNote.Voice.Id;
+                break;
+            case TdApi.MessageContent.MessageDocument document:
+                metadata.MediaKind = "document";
+                metadata.MediaFileId = document.Document.Document_.Id;
+                break;
+            case TdApi.MessageContent.MessageAnimation animation:
+                metadata.MediaKind = "animation";
+                metadata.MediaFileId = animation.Animation.Animation_.Id;
+                break;
+            case TdApi.MessageContent.MessageVideoNote videoNote:
+                metadata.MediaKind = "video_note";
+                metadata.MediaFileId = videoNote.VideoNote.Video.Id;
                 break;
         }
 

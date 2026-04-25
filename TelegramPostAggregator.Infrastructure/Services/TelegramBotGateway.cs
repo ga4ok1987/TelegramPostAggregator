@@ -63,6 +63,15 @@ public sealed class TelegramBotGateway(
     public Task<TelegramBotApiResultDto> SendVoiceAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
         SendMediaAsync("sendVoice", "voice", message, cancellationToken);
 
+    public Task<TelegramBotApiResultDto> SendDocumentAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+        SendMediaAsync("sendDocument", "document", message, cancellationToken);
+
+    public Task<TelegramBotApiResultDto> SendAnimationAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+        SendMediaAsync("sendAnimation", "animation", message, cancellationToken);
+
+    public Task<TelegramBotApiResultDto> SendVideoNoteAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+        SendMediaAsync("sendVideoNote", "video_note", message with { Caption = string.Empty, ParseMode = null }, cancellationToken);
+
     public async Task<TelegramBotApiResultDto?> SendMediaGroupAsync(TelegramBotMediaGroupMessageDto message, CancellationToken cancellationToken = default)
     {
         if (message.Items.Count == 0)
