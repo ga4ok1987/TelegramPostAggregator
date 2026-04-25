@@ -278,6 +278,25 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
+        if (metadata?.MediaKind == "audio")
+        {
+            var mediaLocalPath = await EnsureMediaLocalPathAsync(post, metadata, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(mediaLocalPath) && File.Exists(mediaLocalPath))
+            {
+                var response = await telegramBotGateway.SendAudioAsync(
+                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, captionRender.Caption, "audio", HtmlParseMode),
+                    cancellationToken);
+                if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                {
+                    return await SendTextFallbackAsync(chatId, posts, cancellationToken);
+                }
+
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
+            }
+        }
+
         return await SendOverflowMessagesAsync(chatId, messageParts, cancellationToken);
     }
 
@@ -384,12 +403,14 @@ public sealed class TelegramFeedDeliveryService(
     private static bool IsIgnorablePost(Domain.Entities.TelegramPost post, PostMediaMetadata? metadata)
     {
         if (!string.IsNullOrWhiteSpace(metadata?.ContentType) &&
-            metadata.ContentType.StartsWith("messageGiveaway", StringComparison.Ordinal))
+            (metadata.ContentType.StartsWith("messageGiveaway", StringComparison.Ordinal) ||
+             string.Equals(metadata.ContentType, "messagePinMessage", StringComparison.Ordinal)))
         {
             return true;
         }
 
-        return post.RawText.StartsWith("(messageGiveaway", StringComparison.OrdinalIgnoreCase);
+        return post.RawText.StartsWith("(messageGiveaway", StringComparison.OrdinalIgnoreCase) ||
+               post.RawText.StartsWith("(messagePinMessage", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ResolveChannelLink(string? channelReference, string? originalPostUrl)

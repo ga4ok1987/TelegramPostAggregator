@@ -387,6 +387,8 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                 photo.Photo.Sizes.OrderByDescending(size => size.Width * size.Height).FirstOrDefault()?.Photo?.Id,
             TdApi.MessageContent.MessageVideo video when string.Equals(mediaKind, "video", StringComparison.OrdinalIgnoreCase) =>
                 video.Video.Video_.Id,
+            TdApi.MessageContent.MessageAudio audio when string.Equals(mediaKind, "audio", StringComparison.OrdinalIgnoreCase) =>
+                audio.Audio.Audio_.Id,
             _ => null
         };
 

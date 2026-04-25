@@ -32,6 +32,11 @@ public sealed class TdLibRealtimePostIngestionService(
             return;
         }
 
+        if (IsIgnorableContent(message.Content))
+        {
+            return;
+        }
+
         try
         {
             using var scope = scopeFactory.CreateScope();
@@ -233,6 +238,11 @@ public sealed class TdLibRealtimePostIngestionService(
                 metadata.MediaFileId = video.Video.Video_.Id;
                 metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, video.Video.Video_, cancellationToken);
                 break;
+            case TdApi.MessageContent.MessageAudio audio:
+                metadata.MediaKind = "audio";
+                metadata.MediaFileId = audio.Audio.Audio_.Id;
+                metadata.MediaLocalPath = await DownloadFileAndGetPathAsync(client, audio.Audio.Audio_, cancellationToken);
+                break;
         }
 
         return PostMediaMetadata.Serialize(metadata);
@@ -292,4 +302,8 @@ public sealed class TdLibRealtimePostIngestionService(
         exception.InnerException is PostgresException postgresException &&
         postgresException.SqlState == PostgresErrorCodes.UniqueViolation &&
         string.Equals(postgresException.ConstraintName, "IX_telegram_posts_ChannelId_TelegramMessageId", StringComparison.Ordinal);
+
+    private static bool IsIgnorableContent(TdApi.MessageContent content) =>
+        content.DataType.StartsWith("messageGiveaway", StringComparison.Ordinal) ||
+        string.Equals(content.DataType, "messagePinMessage", StringComparison.Ordinal);
 }

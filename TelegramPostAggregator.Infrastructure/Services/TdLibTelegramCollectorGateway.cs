@@ -235,7 +235,8 @@ public sealed class TdLibTelegramCollectorGateway(
         content is not TdApi.MessageContent.MessageText;
 
     private static bool IsIgnorableContent(TdApi.MessageContent content) =>
-        content.DataType.StartsWith("messageGiveaway", StringComparison.Ordinal);
+        content.DataType.StartsWith("messageGiveaway", StringComparison.Ordinal) ||
+        string.Equals(content.DataType, "messagePinMessage", StringComparison.Ordinal);
 
     private static string? GetMediaGroupId(TdApi.Message message) =>
         message.MediaAlbumId == 0 ? null : message.MediaAlbumId.ToString();
@@ -322,6 +323,10 @@ public sealed class TdLibTelegramCollectorGateway(
             case TdApi.MessageContent.MessageVideo video:
                 metadata.MediaKind = "video";
                 metadata.MediaFileId = video.Video.Video_.Id;
+                break;
+            case TdApi.MessageContent.MessageAudio audio:
+                metadata.MediaKind = "audio";
+                metadata.MediaFileId = audio.Audio.Audio_.Id;
                 break;
         }
 
