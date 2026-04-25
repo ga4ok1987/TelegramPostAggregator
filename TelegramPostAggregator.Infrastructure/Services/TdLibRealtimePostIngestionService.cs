@@ -161,6 +161,7 @@ public sealed class TdLibRealtimePostIngestionService(
             TdApi.MessageContent.MessageDocument document => ExtractFormattedText(document.Caption),
             TdApi.MessageContent.MessageAudio audio => ExtractFormattedText(audio.Caption),
             TdApi.MessageContent.MessageVoiceNote voiceNote => ExtractFormattedText(voiceNote.Caption),
+            TdApi.MessageContent.MessageVideoNote => "(video note)",
             TdApi.MessageContent.MessagePoll poll => ExtractFormattedText(poll.Poll.Question),
             _ => $"({content.DataType})"
         };

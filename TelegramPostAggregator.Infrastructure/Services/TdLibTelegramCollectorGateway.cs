@@ -227,6 +227,7 @@ public sealed class TdLibTelegramCollectorGateway(
             TdApi.MessageContent.MessageDocument document => ExtractFormattedText(document.Caption),
             TdApi.MessageContent.MessageAudio audio => ExtractFormattedText(audio.Caption),
             TdApi.MessageContent.MessageVoiceNote voiceNote => ExtractFormattedText(voiceNote.Caption),
+            TdApi.MessageContent.MessageVideoNote => "(video note)",
             TdApi.MessageContent.MessagePoll poll => ExtractFormattedText(poll.Poll.Question),
             _ => HumanizeContentType(content.DataType)
         };
@@ -252,6 +253,7 @@ public sealed class TdLibTelegramCollectorGateway(
             "messageDocument" => "(document post)",
             "messageAudio" => "(audio post)",
             "messageVoiceNote" => "(voice message)",
+            "messageVideoNote" => "(video note)",
             _ => $"({dataType})"
         };
 

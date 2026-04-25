@@ -10,6 +10,12 @@ public static class TelegramPostMessageFormatter
         "(media post)",
         "(photo post)",
         "(video post)",
+        "(animation post)",
+        "(document post)",
+        "(audio post)",
+        "(voice message)",
+        "(video note)",
+        "(messagevideonote)",
         "(no text)"
     ];
 
@@ -19,9 +25,9 @@ public static class TelegramPostMessageFormatter
     public static IReadOnlyList<string> FormatMessagePartsHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null)
     {
         var header = BuildHeaderHtml(channelName, channelUrl);
-        var body = string.IsNullOrWhiteSpace(rawText) ? "(no text)" : rawText.Trim();
+        var body = NormalizeMessageBody(rawText);
         var footer = string.IsNullOrWhiteSpace(originalPostUrl) ? string.Empty : HtmlEncode(originalPostUrl.Trim());
-        var singleMessage = ComposeHtmlMessage(header, HtmlEncode(body), footer);
+        var singleMessage = ComposeHtmlMessage(header, string.IsNullOrWhiteSpace(body) ? string.Empty : HtmlEncode(body), footer);
         if (singleMessage.Length <= MessageTextLimit)
         {
             return [singleMessage];
@@ -29,6 +35,11 @@ public static class TelegramPostMessageFormatter
 
         var parts = new List<string>();
         var remaining = body;
+        if (string.IsNullOrWhiteSpace(remaining))
+        {
+            return [ComposeHtmlMessage(header, string.Empty, footer)];
+        }
+
         var firstBodyLimit = Math.Max(0, MessageTextLimit - header.Length - BlockSeparator.Length);
         var firstChunk = TakeHtmlEncodedChunk(remaining, firstBodyLimit);
         parts.Add($"{header}{BlockSeparator}{firstChunk.Encoded}");
@@ -146,12 +157,14 @@ public static class TelegramPostMessageFormatter
 
     private static string ComposeFullText(string channelName, string rawText, string? originalPostUrl)
     {
-        var text = string.IsNullOrWhiteSpace(rawText) ? "(no text)" : rawText.Trim();
+        var text = NormalizeMessageBody(rawText);
         var header = channelName.Trim();
 
         return string.IsNullOrWhiteSpace(originalPostUrl)
-            ? string.IsNullOrWhiteSpace(header) ? text : $"{header}{BlockSeparator}{text}"
-            : string.IsNullOrWhiteSpace(header) ? $"{text}{BlockSeparator}{originalPostUrl}" : $"{header}{BlockSeparator}{text}{BlockSeparator}{originalPostUrl}";
+            ? string.IsNullOrWhiteSpace(header) ? text : string.IsNullOrWhiteSpace(text) ? header : $"{header}{BlockSeparator}{text}"
+            : string.IsNullOrWhiteSpace(header)
+                ? string.IsNullOrWhiteSpace(text) ? originalPostUrl : $"{text}{BlockSeparator}{originalPostUrl}"
+                : string.IsNullOrWhiteSpace(text) ? $"{header}{BlockSeparator}{originalPostUrl}" : $"{header}{BlockSeparator}{text}{BlockSeparator}{originalPostUrl}";
     }
 
     private static string ComposeHtmlMessage(string header, string body, string footer)
@@ -220,6 +233,9 @@ public static class TelegramPostMessageFormatter
             ? string.Empty
             : text;
     }
+
+    private static string NormalizeMessageBody(string rawText) =>
+        NormalizeCaptionBody(rawText);
 
     private static string TrimEncodedBodyToLength(string body, int maxLength)
     {
