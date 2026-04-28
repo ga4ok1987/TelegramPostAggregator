@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using System.IO;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using TelegramPostAggregator.Application;
 using TelegramPostAggregator.Application.Options;
 using TelegramPostAggregator.Infrastructure;
@@ -14,6 +16,9 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthorization();
+builder.Services.AddDataProtection()
+    .SetApplicationName("ChannelsMonitor.Monitoring.Web")
+    .PersistKeysToFileSystem(new DirectoryInfo("/var/lib/telegram-post-aggregator/monitoring-web/dataprotection-keys"));
 builder.Services.Configure<SimpleLoginOptions>(builder.Configuration.GetSection(SimpleLoginOptions.SectionName));
 builder.Services.AddMonitoringApplication(builder.Configuration);
 builder.Services.AddMonitoringInfrastructure(builder.Configuration);
