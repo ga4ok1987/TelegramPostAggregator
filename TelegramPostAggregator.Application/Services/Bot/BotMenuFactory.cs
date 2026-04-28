@@ -1,19 +1,32 @@
+using Microsoft.Extensions.Options;
 using TelegramPostAggregator.Application.DTOs;
+using TelegramPostAggregator.Application.Options;
 
 namespace TelegramPostAggregator.Application.Services.Bot;
 
-public sealed class BotMenuFactory(BotLocalizationCatalog localizationCatalog)
+public sealed class BotMenuFactory(
+    BotLocalizationCatalog localizationCatalog,
+    IOptions<MiniAppOptions> miniAppOptions)
 {
+    private readonly string _miniAppUrl = miniAppOptions.Value.Url.Trim();
+
     public BotReplyMarkupDto BuildMainMenu(string languageCode)
     {
         var locale = localizationCatalog.GetLocale(languageCode);
-        return new BotReplyMarkupDto(
-            [
-                [new BotButtonDto(locale.StartLabel), new BotButtonDto(locale.StopLabel)],
-                [new BotButtonDto(locale.ListLabel)],
-                [new BotButtonDto(locale.DeleteAllLabel)],
-                [new BotButtonDto(localizationCatalog.BuildLanguageButtonLabel(languageCode))]
-            ]);
+        var buttons = new List<IReadOnlyList<BotButtonDto>>
+        {
+            new List<BotButtonDto> { new(locale.StartLabel), new(locale.StopLabel) },
+            new List<BotButtonDto> { new(locale.ListLabel) },
+            new List<BotButtonDto> { new(locale.DeleteAllLabel) }
+        };
+
+        if (!string.IsNullOrWhiteSpace(_miniAppUrl))
+        {
+            buttons.Add(new List<BotButtonDto> { new(localizationCatalog.MiniAppButtonLabel, WebAppUrl: _miniAppUrl) });
+        }
+
+        buttons.Add(new List<BotButtonDto> { new(localizationCatalog.BuildLanguageButtonLabel(languageCode)) });
+        return new BotReplyMarkupDto(buttons);
     }
 
     public BotReplyMarkupDto BuildPauseConfirmationMenu(string languageCode)

@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Options;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
+using TelegramPostAggregator.Application.Options;
 using TelegramPostAggregator.Application.Services;
 using TelegramPostAggregator.Application.Services.Bot;
 using Xunit;
@@ -200,11 +202,12 @@ public sealed class BotUpdateProcessorTests
     private static BotUpdateProcessor CreateProcessor(IUserService userService, IChannelTrackingService trackingService)
     {
         var localizationCatalog = new BotLocalizationCatalog();
+        var miniAppOptions = Microsoft.Extensions.Options.Options.Create(new MiniAppOptions());
         return new BotUpdateProcessor(
             userService,
             trackingService,
             localizationCatalog,
-            new BotMenuFactory(localizationCatalog),
+            new BotMenuFactory(localizationCatalog, miniAppOptions),
             new BotMessageCatalog(localizationCatalog));
     }
 

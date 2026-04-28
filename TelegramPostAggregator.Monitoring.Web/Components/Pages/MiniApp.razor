@@ -1,0 +1,313 @@
+@page "/mini-app"
+@layout Layout.MiniAppLayout
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@inject ViewModels.MiniAppViewModel ViewModel
+
+<PageTitle>Channels Monitor Mini App</PageTitle>
+
+<div class="miniapp-screen">
+    <header class="miniapp-topbar">
+        <button class="icon-button" type="button" @onclick="OpenDrawerAsync" aria-label="Menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+
+        <div class="miniapp-title-wrap">
+            <h1>@CurrentTitle</h1>
+            <p>@CurrentSubtitle</p>
+        </div>
+
+        @if (ActiveTab == MiniAppTab.Channels)
+        {
+            <button class="icon-button accent" type="button" @onclick="ShowAddChannelHintAsync" aria-label="Add channel">+</button>
+        }
+        else
+        {
+            <div class="icon-button ghost"></div>
+        }
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+    {
+        <section class="miniapp-banner error">
+            @ViewModel.ErrorMessage
+        </section>
+    }
+    else if (!string.IsNullOrWhiteSpace(ViewModel.StatusMessage))
+    {
+        <section class="miniapp-banner success">
+            @ViewModel.StatusMessage
+        </section>
+    }
+
+    <main class="miniapp-content">
+        @if (ViewModel.IsLoading)
+        {
+            <section class="miniapp-panel">
+                <div class="skeleton-title"></div>
+                <div class="skeleton-line"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+            </section>
+        }
+        else
+        {
+            @switch (ActiveTab)
+            {
+                case MiniAppTab.Channels:
+                    <section class="miniapp-stack">
+                        <article class="miniapp-hero">
+                            <div>
+                                <span class="miniapp-kicker">Client workspace</span>
+                                <h2>My Private Channels</h2>
+                                <p>Channels linked to your bot profile. Start, pause, or remove them from monitoring.</p>
+                            </div>
+                            <div class="miniapp-user-chip">
+                                <strong>@ViewModel.DisplayName</strong>
+                                <span>@(ViewModel.IsAuthenticated
+                                    ? (string.IsNullOrWhiteSpace(ViewModel.Username) ? "Verified Telegram session" : $"@{ViewModel.Username?.TrimStart('@')}")
+                                    : "Authorization required")</span>
+                            </div>
+                        </article>
+
+                        <article class="miniapp-panel">
+                            <div class="channel-actions">
+                                <button class="secondary-action" type="button" @onclick="RefreshAsync" disabled="@ViewModel.IsRefreshing">
+                                    @(ViewModel.IsRefreshing ? "Refreshing..." : "Refresh list")
+                                </button>
+                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">Add in bot chat</button>
+                            </div>
+                        </article>
+
+                        @if (ViewModel.IsAuthenticated && ViewModel.Channels.Count == 0)
+                        {
+                            <article class="miniapp-panel empty-state">
+                                <h3>No channels yet</h3>
+                                <p>Add channels from the bot chat first. They will appear here automatically.</p>
+                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">How to add channels</button>
+                            </article>
+                        }
+                        else
+                        {
+                            <div class="channel-list">
+                                @foreach (var channel in ViewModel.Channels)
+                                {
+                                    var isBusy = ViewModel.IsChannelBusy(channel.ChannelId);
+                                    <article class="channel-card">
+                                        <div class="channel-card-header">
+                                            <div class="channel-avatar">@BuildAvatar(channel.ChannelName)</div>
+                                            <div class="channel-meta">
+                                                <div class="channel-name-row">
+                                                    <h3>@channel.ChannelName</h3>
+                                                    <span class="status-pill @(channel.IsActive ? "active" : "paused")">
+                                                        @(channel.IsActive ? "Active" : "Stopped")
+                                                    </span>
+                                                </div>
+                                                <p class="channel-reference">
+                                                    @if (TryBuildReferenceHref(channel.ChannelReference, out var referenceHref))
+                                                    {
+                                                        <a href="@referenceHref" target="_blank" rel="noreferrer noopener">@FormatReference(channel.ChannelReference)</a>
+                                                    }
+                                                    else
+                                                    {
+                                                        @FormatReference(channel.ChannelReference)
+                                                    }
+                                                </p>
+                                                <p class="channel-sync">Last sync: @FormatDate(channel.LastPostCollectedAtUtc)</p>
+                                            </div>
+                                        </div>
+
+                                        @if (!string.IsNullOrWhiteSpace(channel.LastCollectorError))
+                                        {
+                                            <div class="channel-warning">@channel.LastCollectorError</div>
+                                        }
+
+                                        <div class="channel-actions">
+                                            <button class="channel-action start" type="button" @onclick="() => StartAsync(channel.ChannelId)" disabled="@(channel.IsActive || isBusy)">@(isBusy && !channel.IsActive ? "Working..." : "Start")</button>
+                                            <button class="channel-action stop" type="button" @onclick="() => StopAsync(channel.ChannelId)" disabled="@(!channel.IsActive || isBusy)">@(isBusy && channel.IsActive ? "Working..." : "Stop")</button>
+                                            <button class="channel-action delete" type="button" @onclick="() => DeleteAsync(channel.ChannelId)" disabled="@isBusy">@(isBusy ? "Working..." : "Delete")</button>
+                                        </div>
+                                    </article>
+                                }
+                            </div>
+                        }
+                    </section>
+                    break;
+
+                case MiniAppTab.Summary:
+                    <section class="miniapp-stack">
+                        <article class="miniapp-panel">
+                            <div class="segmented-tabs">
+                                <button class="segment active" type="button">Single Day</button>
+                                <button class="segment" type="button" disabled>Date Range</button>
+                            </div>
+                        </article>
+
+                        <article class="miniapp-panel placeholder-panel">
+                            <h3>Summary is coming next</h3>
+                            <p>This screen is reserved for daily and range summaries, duplicate groups, and highlights.</p>
+                            <ul class="placeholder-list">
+                                <li>Calendar filters</li>
+                                <li>Media and edited-post toggles</li>
+                                <li>Generate summary action</li>
+                            </ul>
+                        </article>
+                    </section>
+                    break;
+
+                case MiniAppTab.Settings:
+                    <section class="miniapp-stack">
+                        <article class="miniapp-panel placeholder-panel">
+                            <h3>Settings placeholder</h3>
+                            <p>This section is ready for notification controls, language preferences, and future bot options.</p>
+                            <button class="secondary-action" type="button" @onclick="ShowSettingsHintAsync">Preview planned options</button>
+                        </article>
+                    </section>
+                    break;
+            }
+        }
+    </main>
+
+    <nav class="miniapp-bottom-nav" aria-label="Mini App sections">
+        <button class="bottom-nav-item @(ActiveTab == MiniAppTab.Channels ? "selected" : null)" type="button" @onclick="() => ActivateTab(MiniAppTab.Channels)">
+            <span class="nav-icon">[]</span>
+            <span>Channels</span>
+        </button>
+        <button class="bottom-nav-item @(ActiveTab == MiniAppTab.Summary ? "selected" : null)" type="button" @onclick="() => ActivateTab(MiniAppTab.Summary)">
+            <span class="nav-icon">==</span>
+            <span>Summary</span>
+        </button>
+        <button class="bottom-nav-item @(ActiveTab == MiniAppTab.Settings ? "selected" : null)" type="button" @onclick="() => ActivateTab(MiniAppTab.Settings)">
+            <span class="nav-icon">::</span>
+            <span>Settings</span>
+        </button>
+    </nav>
+</div>
+
+@code {
+    private MiniAppTab ActiveTab { get; set; } = MiniAppTab.Channels;
+
+    private string CurrentTitle => ActiveTab switch
+    {
+        MiniAppTab.Channels => "My Private Channels",
+        MiniAppTab.Summary => "Summary",
+        MiniAppTab.Settings => "Settings",
+        _ => "Channels Monitor"
+    };
+
+    private string CurrentSubtitle => ActiveTab switch
+    {
+        MiniAppTab.Channels => "Manage your private channels and their status.",
+        MiniAppTab.Summary => "Summary tools are reserved here for the next iteration.",
+        MiniAppTab.Settings => "Fine-tune the Mini App experience.",
+        _ => string.Empty
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        await ViewModel.InitializeAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ActivateTab(MiniAppTab tab) => ActiveTab = tab;
+
+    private async Task StartAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.StartChannelAsync(channelId));
+
+    private async Task StopAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.StopChannelAsync(channelId));
+
+    private async Task DeleteAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.DeleteChannelAsync(channelId));
+
+    private Task OpenDrawerAsync() =>
+        ViewModel.ShowPlaceholderAsync("Mini App navigation drawer is reserved for future sections.").AsTask();
+
+    private Task ShowAddChannelHintAsync() =>
+        ViewModel.ShowPlaceholderAsync("For now, add a new channel from the bot chat. It will appear here automatically.").AsTask();
+
+    private Task ShowSettingsHintAsync() =>
+        ViewModel.ShowPlaceholderAsync("Settings will be connected in the next iteration.").AsTask();
+
+    private async Task RefreshAsync() => await ExecuteAsync(() => RefreshViewModelAsync());
+
+    private async Task ExecuteAsync(Func<Task<bool>> action)
+    {
+        await action();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<bool> RefreshViewModelAsync()
+    {
+        await ViewModel.RefreshChannelsAsync();
+        return true;
+    }
+
+    private static string BuildAvatar(string channelName)
+    {
+        var letters = new string(channelName
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(part => part.Length > 0)
+            .Take(2)
+            .Select(part => char.ToUpperInvariant(part[0]))
+            .ToArray());
+
+        return string.IsNullOrWhiteSpace(letters)
+            ? "CH"
+            : letters;
+    }
+
+    private static string FormatReference(string channelReference)
+    {
+        if (string.IsNullOrWhiteSpace(channelReference))
+        {
+            return "Private channel";
+        }
+
+        if (channelReference.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return channelReference;
+        }
+
+        return channelReference.StartsWith("@", StringComparison.Ordinal) ? channelReference : $"@{channelReference}";
+    }
+
+    private static bool TryBuildReferenceHref(string channelReference, out string href)
+    {
+        href = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(channelReference))
+        {
+            return false;
+        }
+
+        if (Uri.TryCreate(channelReference, UriKind.Absolute, out var uri))
+        {
+            href = uri.ToString();
+            return true;
+        }
+
+        var reference = channelReference.Trim().TrimStart('@');
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            return false;
+        }
+
+        href = $"https://t.me/{reference}";
+        return true;
+    }
+
+    private static string FormatDate(DateTimeOffset? value) =>
+        value?.ToLocalTime().ToString("dd MMM yyyy, HH:mm") ?? "Waiting for first sync";
+
+    private enum MiniAppTab
+    {
+        Channels,
+        Summary,
+        Settings
+    }
+}

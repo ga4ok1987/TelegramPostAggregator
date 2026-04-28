@@ -13,11 +13,13 @@ public static class DependencyInjection
     {
         services.Configure<CollectorOptions>(configuration.GetSection(CollectorOptions.SectionName));
         services.Configure<FactCheckOptions>(configuration.GetSection(FactCheckOptions.SectionName));
+        services.Configure<MiniAppOptions>(configuration.GetSection(MiniAppOptions.SectionName));
 
         services.AddScoped<IChannelKeyNormalizer, ChannelKeyNormalizer>();
         services.AddScoped<ITextNormalizer, TextNormalizer>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IChannelTrackingService, ChannelTrackingService>();
+        services.AddScoped<IMiniAppChannelService, MiniAppChannelService>();
         services.AddScoped<IFeedService, FeedService>();
         services.AddScoped<IFactCheckService, FactCheckService>();
         services.AddScoped<ICollectorCoordinator, CollectorCoordinator>();
@@ -27,6 +29,14 @@ public static class DependencyInjection
         services.AddSingleton<BotMenuFactory>();
         services.AddSingleton<BotMessageCatalog>();
 
+        return services;
+    }
+
+    public static IServiceCollection AddMonitoringApplication(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddApplication(configuration);
+        services.Configure<BotMonitoringOptions>(configuration.GetSection(BotMonitoringOptions.SectionName));
+        services.AddScoped<IBotMonitoringService, BotMonitoringService>();
         return services;
     }
 }

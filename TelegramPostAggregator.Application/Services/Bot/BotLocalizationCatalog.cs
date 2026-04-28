@@ -433,8 +433,14 @@ public sealed class BotLocalizationCatalog
         return Locales.ContainsKey(primary) ? primary : "en";
     }
 
-    public bool TryResolveMainMenuAction(string text, out BotMainMenuAction action)
+    public bool TryResolveMainMenuAction(string? text, out BotMainMenuAction action)
     {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            action = BotMainMenuAction.None;
+            return false;
+        }
+
         foreach (var locale in Locales.Values)
         {
             if (string.Equals(text, locale.StartLabel, StringComparison.OrdinalIgnoreCase))
@@ -478,8 +484,14 @@ public sealed class BotLocalizationCatalog
         return false;
     }
 
-    public bool TryResolveLanguageSelection(string text, out string languageCode)
+    public bool TryResolveLanguageSelection(string? text, out string languageCode)
     {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            languageCode = string.Empty;
+            return false;
+        }
+
         var normalized = NormalizeUiText(text);
         foreach (var locale in Locales.Values)
         {
@@ -502,8 +514,18 @@ public sealed class BotLocalizationCatalog
         return false;
     }
 
-    public bool IsReservedUiText(string text)
+    public bool IsReservedUiText(string? text)
     {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (string.Equals(text?.Trim(), MiniAppButtonLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (TryResolveMainMenuAction(text, out _) || TryResolveLanguageSelection(text, out _))
         {
             return true;
@@ -519,8 +541,10 @@ public sealed class BotLocalizationCatalog
         return $"{locale.Flag} {locale.LanguageLabel}";
     }
 
-    private static string NormalizeUiText(string value) =>
-        value
+    public string MiniAppButtonLabel => "Mini App";
+
+    private static string NormalizeUiText(string? value) =>
+        (value ?? string.Empty)
             .Replace("✓", string.Empty, StringComparison.Ordinal)
             .Trim();
 

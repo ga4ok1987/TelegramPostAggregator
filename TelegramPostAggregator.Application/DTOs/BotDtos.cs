@@ -22,4 +22,4 @@ public sealed record BotReplyMarkupDto(
     bool IsInline = false,
     bool ResizeKeyboard = true);
 
-public sealed record BotButtonDto(string Text, string? CallbackData = null);
+public sealed record BotButtonDto(string Text, string? CallbackData = null, string? WebAppUrl = null);

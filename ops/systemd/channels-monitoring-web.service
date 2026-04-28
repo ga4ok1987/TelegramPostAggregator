@@ -6,13 +6,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/channels-monitoring
-ExecStart=/usr/bin/dotnet /opt/channels-monitoring/TelegramPostAggregator.Monitoring.Web.dll
+ExecStart=/opt/channels-monitoring/TelegramPostAggregator.Monitoring.Web
 Restart=always
 RestartSec=5
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://127.0.0.1:5180
-Environment=Authentication__Google__ClientId=PUT_GOOGLE_CLIENT_ID_HERE
-Environment=Authentication__Google__ClientSecret=PUT_GOOGLE_CLIENT_SECRET_HERE
+Environment=SimpleLogin__Username=SET_A_USERNAME
+Environment=SimpleLogin__Password=SET_A_PASSWORD
 Environment=BotMonitoring__AllowedEmail=hachkevych.serhii@gmail.com
 Environment=BotMonitoring__Bots__0__Id=channels-monitor-bot
 Environment=BotMonitoring__Bots__0__DisplayName=channelsMonitorBot

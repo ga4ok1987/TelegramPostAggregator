@@ -48,6 +48,7 @@ services:
       TelegramBot__BotToken: ${BOT_TOKEN:-}
       TelegramBot__BotUsername: ${BOT_USERNAME:-ChannelsMonitorBot}
       TelegramBot__AlertChatId: ${ALERT_CHAT_ID:-}
+      MiniApp__Url: ${MINI_APP_URL:-}
       TelegramBot__LocalBotApiBaseUrl: ${LOCAL_BOT_API_BASE_URL:-http://telegram-bot-api:8081}
       TelegramBot__UseLocalBotApiFileTransport: ${USE_LOCAL_BOT_API_FILE_TRANSPORT:-true}
       Collector__UseTdLibSimulation: ${TDLIB_USE_SIMULATION:-true}
@@ -70,8 +71,56 @@ services:
       - tdlib-data:/var/lib/telegram-post-aggregator/tdlib-data
       - tdlib-files:/var/lib/telegram-post-aggregator/tdlib-files
 
+  monitoring-web:
+    build:
+      context: .
+      dockerfile: TelegramPostAggregator.Monitoring.Web/Dockerfile
+    container_name: telegram-post-aggregator-monitoring-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5180
+      Database__ConnectionString: Host=postgres;Port=5432;Database=telegram_post_aggregator;Username=postgres;Password=postgres
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=telegram_post_aggregator;Username=postgres;Password=postgres
+      TelegramBot__BotToken: ${BOT_TOKEN:-}
+      MiniApp__InitDataLifetimeSeconds: ${MINI_APP_INIT_DATA_LIFETIME_SECONDS:-900}
+      SimpleLogin__Username: serg
+      SimpleLogin__Password: ChannelsMonitor2026!
+      BotMonitoring__AllowedEmail: hachkevych.serhii@gmail.com
+      BotMonitoring__RefreshIntervalSeconds: 20
+      BotMonitoring__Bots__0__Id: channels-monitor-bot
+      BotMonitoring__Bots__0__DisplayName: channelsMonitorBot
+      BotMonitoring__Bots__0__Description: Telegram bot that tracks channels and pushes updates to users.
+      BotMonitoring__Bots__0__ProbeType: http
+      BotMonitoring__Bots__0__Endpoint: http://api:8080/api/health
+      BotMonitoring__Bots__0__TimeoutSeconds: 10
+      BotMonitoring__Bots__0__Tags__0: telegram
+      BotMonitoring__Bots__0__Tags__1: channels
+
+  caddy:
+    image: caddy:2
+    container_name: telegram-post-aggregator-caddy
+    restart: unless-stopped
+    depends_on:
+      monitoring-web:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   postgres-data:
   bot-api-data:
   tdlib-data:
   tdlib-files:
+  caddy-data:
+  caddy-config:

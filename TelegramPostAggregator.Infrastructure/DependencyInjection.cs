@@ -67,6 +67,33 @@ public static class DependencyInjection
         return services;
     }
 
+    public static IServiceCollection AddMonitoringInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<DatabaseOptions>(configuration.GetSection(DatabaseOptions.SectionName));
+        services.Configure<TelegramBotOptions>(configuration.GetSection(TelegramBotOptions.SectionName));
+
+        var connectionString = configuration.GetSection(DatabaseOptions.SectionName).GetValue<string>("ConnectionString")
+            ?? configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("Database connection string is not configured.");
+
+        services.AddDbContext<AggregatorDbContext>(options =>
+            options.UseNpgsql(connectionString, builder => builder.MigrationsAssembly(typeof(AggregatorDbContext).Assembly.FullName)));
+
+        services.AddScoped<IAppUserRepository, AppUserRepository>();
+        services.AddScoped<ITrackedChannelRepository, TrackedChannelRepository>();
+        services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+        services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
+        services.AddScoped<IPostRepository, PostRepository>();
+        services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
+
+        services.AddHttpClient(nameof(Services.Monitoring.HttpBotStatusProbe));
+        services.AddScoped<IBotStatusProbe, Services.Monitoring.HeartbeatBotStatusProbe>();
+        services.AddScoped<IBotStatusProbe, Services.Monitoring.HttpBotStatusProbe>();
+        services.AddScoped<ITelegramMiniAppAuthService, Services.Monitoring.TelegramMiniAppAuthService>();
+
+        return services;
+    }
+
     public static async Task InitializeInfrastructureAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
     {
         using var scope = services.CreateScope();

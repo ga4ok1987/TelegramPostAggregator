@@ -16,8 +16,9 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthorization();
 builder.Services.Configure<SimpleLoginOptions>(builder.Configuration.GetSection(SimpleLoginOptions.SectionName));
 builder.Services.AddMonitoringApplication(builder.Configuration);
-builder.Services.AddMonitoringInfrastructure();
+builder.Services.AddMonitoringInfrastructure(builder.Configuration);
 builder.Services.AddScoped<DashboardViewModel>();
+builder.Services.AddScoped<MiniAppViewModel>();
 
 var loginOptions = builder.Configuration.GetSection(SimpleLoginOptions.SectionName).Get<SimpleLoginOptions>()
     ?? new SimpleLoginOptions();

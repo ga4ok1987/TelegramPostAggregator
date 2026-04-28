@@ -294,3 +294,423 @@ button {
         grid-template-columns: 1fr;
     }
 }
+
+.miniapp-shell {
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top left, rgba(63, 135, 255, 0.22), transparent 24%),
+        radial-gradient(circle at top right, rgba(29, 182, 125, 0.12), transparent 22%),
+        linear-gradient(180deg, #09111f 0%, #050a12 100%);
+}
+
+.miniapp-screen {
+    width: min(100%, 520px);
+    min-height: 100vh;
+    margin: 0 auto;
+    padding: 18px 16px 108px;
+    box-sizing: border-box;
+}
+
+.miniapp-topbar {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 48px;
+    align-items: start;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.icon-button {
+    width: 48px;
+    height: 48px;
+    border: 1px solid rgba(164, 189, 255, 0.16);
+    border-radius: 16px;
+    background: rgba(12, 24, 43, 0.84);
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    box-shadow: 0 16px 32px rgba(1, 8, 20, 0.28);
+}
+
+.icon-button span {
+    display: block;
+    width: 16px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.icon-button.accent {
+    font-size: 1.6rem;
+    font-weight: 500;
+    background: linear-gradient(180deg, rgba(26, 43, 75, 0.94), rgba(12, 24, 43, 0.92));
+}
+
+.icon-button.ghost {
+    visibility: hidden;
+}
+
+.miniapp-title-wrap h1 {
+    margin: 2px 0 6px;
+    font-size: clamp(1.5rem, 4vw, 2.1rem);
+    line-height: 1.05;
+}
+
+.miniapp-title-wrap p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+.miniapp-banner,
+.miniapp-panel,
+.miniapp-hero,
+.channel-card,
+.miniapp-bottom-nav {
+    border: 1px solid rgba(164, 189, 255, 0.14);
+    background: rgba(9, 23, 43, 0.82);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 24px 60px rgba(1, 8, 20, 0.36);
+}
+
+.miniapp-banner {
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    color: var(--text);
+}
+
+.miniapp-banner.error {
+    border-color: rgba(239, 95, 103, 0.32);
+}
+
+.miniapp-banner.success {
+    border-color: rgba(29, 182, 125, 0.32);
+}
+
+.miniapp-content,
+.miniapp-stack,
+.channel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.miniapp-hero,
+.miniapp-panel,
+.channel-card {
+    border-radius: 24px;
+    padding: 20px;
+}
+
+.miniapp-kicker {
+    display: inline-block;
+    margin-bottom: 10px;
+    font-size: 0.74rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #7ad3b3;
+}
+
+.miniapp-hero {
+    display: grid;
+    gap: 16px;
+}
+
+.miniapp-hero h2,
+.miniapp-panel h3,
+.channel-card h3 {
+    margin: 0 0 8px;
+}
+
+.miniapp-hero p,
+.miniapp-panel p,
+.channel-reference,
+.channel-sync,
+.channel-warning,
+.miniapp-user-chip span {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.miniapp-user-chip {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    width: fit-content;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.empty-state {
+    align-items: flex-start;
+}
+
+.channel-card-header {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.channel-avatar {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: white;
+    background:
+        radial-gradient(circle at 30% 20%, rgba(63, 135, 255, 0.9), transparent 38%),
+        linear-gradient(145deg, #163764 0%, #0c1626 100%);
+}
+
+.channel-meta {
+    min-width: 0;
+}
+
+.channel-name-row {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.channel-name-row h3 {
+    font-size: 1.05rem;
+    line-height: 1.3;
+}
+
+.channel-reference {
+    font-size: 0.94rem;
+    word-break: break-word;
+}
+
+.channel-sync {
+    margin-top: 4px;
+    font-size: 0.9rem;
+}
+
+.status-pill {
+    flex-shrink: 0;
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.status-pill.active {
+    color: #9dffd0;
+    background: rgba(29, 182, 125, 0.16);
+    border: 1px solid rgba(29, 182, 125, 0.35);
+}
+
+.status-pill.paused {
+    color: #c9d5ea;
+    background: rgba(139, 156, 184, 0.14);
+    border: 1px solid rgba(139, 156, 184, 0.24);
+}
+
+.channel-warning {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(239, 95, 103, 0.08);
+    border: 1px solid rgba(239, 95, 103, 0.18);
+}
+
+.channel-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.channel-action,
+.primary-action,
+.secondary-action {
+    min-height: 48px;
+    border-radius: 16px;
+    border: 1px solid transparent;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: transform 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.channel-action:hover,
+.primary-action:hover,
+.secondary-action:hover,
+.bottom-nav-item:hover,
+.icon-button:hover {
+    transform: translateY(-1px);
+}
+
+.channel-action:disabled {
+    opacity: 0.45;
+    cursor: default;
+    transform: none;
+}
+
+.channel-action.start {
+    border-color: rgba(29, 182, 125, 0.42);
+    color: #8ff0c0;
+}
+
+.channel-action.stop {
+    border-color: rgba(164, 189, 255, 0.26);
+    color: #d5def0;
+}
+
+.channel-action.delete {
+    border-color: rgba(239, 95, 103, 0.36);
+    color: #ff9ba1;
+}
+
+.primary-action {
+    padding: 0 18px;
+    background: linear-gradient(135deg, #3479ff, #2554d9);
+}
+
+.secondary-action {
+    padding: 0 18px;
+    border-color: rgba(164, 189, 255, 0.22);
+}
+
+.segmented-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.segment {
+    min-height: 48px;
+    border-radius: 14px;
+    border: 1px solid rgba(164, 189, 255, 0.16);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+}
+
+.segment.active {
+    background: linear-gradient(135deg, #3479ff, #2b60dd);
+    border-color: transparent;
+}
+
+.placeholder-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.placeholder-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted);
+}
+
+.miniapp-bottom-nav {
+    position: fixed;
+    left: 50%;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: min(calc(100vw - 24px), 488px);
+    border-radius: 24px;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    z-index: 10;
+}
+
+.bottom-nav-item {
+    min-height: 62px;
+    border: 0;
+    border-radius: 18px;
+    background: transparent;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+.bottom-nav-item.selected {
+    background: rgba(52, 121, 255, 0.16);
+    color: #8cb6ff;
+}
+
+.nav-icon {
+    font-size: 0.9rem;
+    letter-spacing: -0.08em;
+}
+
+.skeleton-title,
+.skeleton-line,
+.skeleton-card {
+    border-radius: 16px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.05));
+    background-size: 200% 100%;
+    animation: miniapp-pulse 1.4s ease infinite;
+}
+
+.skeleton-title {
+    width: 48%;
+    height: 28px;
+    margin-bottom: 14px;
+}
+
+.skeleton-line {
+    width: 82%;
+    height: 16px;
+    margin-bottom: 18px;
+}
+
+.skeleton-card {
+    width: 100%;
+    height: 120px;
+    margin-top: 14px;
+}
+
+@keyframes miniapp-pulse {
+    0% {
+        background-position: 100% 0;
+    }
+
+    100% {
+        background-position: -100% 0;
+    }
+}
+
+@media (min-width: 900px) {
+    .miniapp-screen {
+        width: min(100%, 620px);
+        padding-top: 28px;
+    }
+}
+
+@media (max-width: 420px) {
+    .miniapp-screen {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .channel-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .channel-name-row {
+        flex-direction: column;
+    }
+}

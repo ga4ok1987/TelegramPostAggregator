@@ -1,0 +1,7 @@
+{
+    email hachkevych.serhii@gmail.com
+}
+
+https://app.channels-monitor.site {
+    reverse_proxy monitoring-web:5180
+}
