@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
+using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Application.Options;
@@ -12,6 +13,7 @@ using TelegramPostAggregator.Infrastructure.Options;
 namespace TelegramPostAggregator.Infrastructure.Services.Monitoring;
 
 public sealed class TelegramMiniAppAuthService(
+    IAppUserRepository appUserRepository,
     IOptions<MiniAppOptions> miniAppOptions,
     IOptions<TelegramBotOptions> telegramBotOptions) : ITelegramMiniAppAuthService
 {
@@ -19,31 +21,31 @@ public sealed class TelegramMiniAppAuthService(
     private const string SignatureKey = "signature";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public Task<MiniAppAuthResultDto> AuthenticateAsync(string? initData, CancellationToken cancellationToken = default)
+    public async Task<MiniAppAuthResultDto> AuthenticateAsync(string? initData, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         if (string.IsNullOrWhiteSpace(initData))
         {
-            return Task.FromResult(Fail("Open this screen from the Telegram bot."));
+            return Fail("Open this screen from the Telegram bot menu.");
         }
 
         var botToken = telegramBotOptions.Value.BotToken;
         if (string.IsNullOrWhiteSpace(botToken))
         {
-            return Task.FromResult(Fail("Mini App authorization is not configured on the server."));
+            return Fail("Mini App authorization is not configured on the server.");
         }
 
         var parsedData = QueryHelpers.ParseQuery(initData);
         if (!parsedData.TryGetValue(HashKey, out var hashValues))
         {
-            return Task.FromResult(Fail("Telegram authorization payload is incomplete."));
+            return Fail("Telegram authorization payload is incomplete.");
         }
 
         var receivedHash = hashValues.ToString();
         if (string.IsNullOrWhiteSpace(receivedHash))
         {
-            return Task.FromResult(Fail("Telegram authorization hash is missing."));
+            return Fail("Telegram authorization hash is missing.");
         }
 
         var dataCheckString = BuildDataCheckString(parsedData);
@@ -51,23 +53,23 @@ public sealed class TelegramMiniAppAuthService(
 
         if (!FixedTimeEquals(receivedHash, computedHash))
         {
-            return Task.FromResult(Fail("Telegram authorization could not be verified."));
+            return Fail("Telegram authorization could not be verified.");
         }
 
         if (!TryReadAuthDate(parsedData, out var authDateUtc))
         {
-            return Task.FromResult(Fail("Telegram authorization date is missing."));
+            return Fail("Telegram authorization date is missing.");
         }
 
         var lifetime = TimeSpan.FromSeconds(Math.Max(60, miniAppOptions.Value.InitDataLifetimeSeconds));
         if (DateTimeOffset.UtcNow - authDateUtc > lifetime)
         {
-            return Task.FromResult(Fail("Telegram authorization expired. Reopen the Mini App from the bot."));
+            return Fail("Telegram authorization expired. Reopen the Mini App from the bot.");
         }
 
         if (!parsedData.TryGetValue("user", out var userValues))
         {
-            return Task.FromResult(Fail("Telegram user payload is missing."));
+            return Fail("Telegram user payload is missing.");
         }
 
         TelegramMiniAppUserPayload? user;
@@ -77,21 +79,32 @@ public sealed class TelegramMiniAppAuthService(
         }
         catch (JsonException)
         {
-            return Task.FromResult(Fail("Telegram user payload is invalid."));
+            return Fail("Telegram user payload is invalid.");
         }
 
         if (user?.Id is null or 0)
         {
-            return Task.FromResult(Fail("Telegram user is missing from the Mini App session."));
+            return Fail("Telegram user is missing from the Mini App session.");
         }
 
-        return Task.FromResult(new MiniAppAuthResultDto(
+        var appUser = await appUserRepository.GetByTelegramUserIdAsync(user.Id.Value, cancellationToken);
+        if (appUser is null)
+        {
+            return Fail("Start the bot first, then open Mini App from the bot menu.");
+        }
+
+        if (appUser.IsBlockedBot)
+        {
+            return Fail("This Telegram account is not allowed to use the Mini App.");
+        }
+
+        return new MiniAppAuthResultDto(
             true,
             user.Id,
             user.Username,
             user.FirstName,
             user.LastName,
-            null));
+            null);
     }
 
     private static bool TryReadAuthDate(

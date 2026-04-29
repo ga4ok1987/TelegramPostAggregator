@@ -314,10 +314,19 @@ public sealed class TelegramBotGateway(
         return new
         {
             keyboard = replyMarkup.Buttons.Select(row =>
-                row.Select(button => new
-                {
-                    text = button.Text
-                }).ToArray()).ToArray(),
+                row.Select(button => button.WebAppUrl is not null
+                    ? new Dictionary<string, object?>
+                    {
+                        ["text"] = button.Text,
+                        ["web_app"] = new Dictionary<string, object?>
+                        {
+                            ["url"] = button.WebAppUrl
+                        }
+                    }
+                    : new Dictionary<string, object?>
+                    {
+                        ["text"] = button.Text
+                    }).ToArray()).ToArray(),
             resize_keyboard = replyMarkup.ResizeKeyboard
         };
     }
