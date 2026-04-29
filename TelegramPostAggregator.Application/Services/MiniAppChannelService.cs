@@ -9,7 +9,9 @@ namespace TelegramPostAggregator.Application.Services;
 
 public sealed class MiniAppChannelService(
     IManagedChannelRepository managedChannelRepository,
+    IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
     IAppUserRepository appUserRepository,
+    IPostRepository postRepository,
     ITelegramBotGateway telegramBotGateway,
     Microsoft.Extensions.Logging.ILogger<MiniAppChannelService> logger) : IMiniAppChannelService
 {
@@ -145,6 +147,30 @@ public sealed class MiniAppChannelService(
         }
 
         target.IsActive = isActive;
+        if (isActive)
+        {
+            var subscriptions = await managedChannelSubscriptionRepository.GetByManagedChannelIdAsync(target.Id, cancellationToken);
+            foreach (var subscription in subscriptions)
+            {
+                subscription.IsActive = true;
+                subscription.LastDeliveredTelegramMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(subscription.ChannelId, cancellationToken);
+                subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }
+
+            await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            var subscriptions = await managedChannelSubscriptionRepository.GetByManagedChannelIdAsync(target.Id, cancellationToken);
+            foreach (var subscription in subscriptions.Where(x => x.IsActive))
+            {
+                subscription.IsActive = false;
+                subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }
+
+            await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        }
+
         target.UpdatedAtUtc = DateTimeOffset.UtcNow;
         await managedChannelRepository.SaveChangesAsync(cancellationToken);
         return true;

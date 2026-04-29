@@ -144,17 +144,44 @@ public sealed class ChannelTrackingService(
     public async Task<int> SetSubscriptionsActiveAsync(long telegramUserId, bool isActive, CancellationToken cancellationToken = default)
     {
         var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var managedSubscriptions = await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var managedChannels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
         var updatedCount = 0;
         foreach (var subscription in subscriptions.Where(x => x.IsActive != isActive))
         {
             subscription.IsActive = isActive;
+            if (isActive)
+            {
+                subscription.LastDeliveredTelegramMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(subscription.ChannelId, cancellationToken);
+            }
             subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            updatedCount++;
+        }
+
+        foreach (var subscription in managedSubscriptions.Where(x => x.IsActive != isActive))
+        {
+            subscription.IsActive = isActive;
+            if (isActive)
+            {
+                subscription.LastDeliveredTelegramMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(subscription.ChannelId, cancellationToken);
+            }
+
+            subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            updatedCount++;
+        }
+
+        foreach (var channel in managedChannels.Where(x => x.IsActive != isActive))
+        {
+            channel.IsActive = isActive;
+            channel.UpdatedAtUtc = DateTimeOffset.UtcNow;
             updatedCount++;
         }
 
         if (updatedCount > 0)
         {
             await subscriptionRepository.SaveChangesAsync(cancellationToken);
+            await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+            await managedChannelRepository.SaveChangesAsync(cancellationToken);
         }
 
         return updatedCount;

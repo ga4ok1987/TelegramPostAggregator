@@ -12,6 +12,20 @@ public sealed class ManagedChannelSubscriptionRepository(AggregatorDbContext dbC
             x => x.ManagedChannelId == managedChannelId && x.ChannelId == channelId,
             cancellationToken);
 
+    public async Task<IReadOnlyList<ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+        await dbContext.ManagedChannelSubscriptions
+            .Include(x => x.ManagedChannel)
+            .Include(x => x.Channel)
+            .Where(x => x.ManagedChannel.User.TelegramUserId == telegramUserId)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
+        await dbContext.ManagedChannelSubscriptions
+            .Include(x => x.ManagedChannel)
+            .Include(x => x.Channel)
+            .Where(x => x.ManagedChannelId == managedChannelId)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) =>
         await dbContext.ManagedChannelSubscriptions
             .Include(x => x.ManagedChannel)

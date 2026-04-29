@@ -19,7 +19,9 @@ public sealed class MiniAppChannelServiceTests
                 CreateManagedChannel("Alpha", -1001, "alpha", true),
                 CreateManagedChannel("Beta", -1002, "beta", true)
             ]),
+            new FakeManagedChannelSubscriptionRepository([]),
             new FakeAppUserRepository(CreateUser()),
+            new FakePostRepository(),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
                 ["-1001"] = true,
@@ -39,7 +41,9 @@ public sealed class MiniAppChannelServiceTests
         var repository = new FakeManagedChannelRepository([]);
         var service = new MiniAppChannelService(
             repository,
+            new FakeManagedChannelSubscriptionRepository([]),
             new FakeAppUserRepository(CreateUser()),
+            new FakePostRepository(),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
                 ["-100200"] = true
@@ -109,6 +113,31 @@ public sealed class MiniAppChannelServiceTests
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    private sealed class FakeManagedChannelSubscriptionRepository(IReadOnlyList<ManagedChannelSubscription> seed) : IManagedChannelSubscriptionRepository
+    {
+        private List<ManagedChannelSubscription> Items { get; } = seed.ToList();
+
+        public Task<ManagedChannelSubscription?> GetAsync(Guid managedChannelId, Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ManagedChannelSubscription?>(Items.FirstOrDefault(x => x.ManagedChannelId == managedChannelId && x.ChannelId == channelId));
+
+        public Task<IReadOnlyList<ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ManagedChannel.User.TelegramUserId == telegramUserId).ToList());
+
+        public Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ManagedChannelId == managedChannelId).ToList());
+
+        public Task<IReadOnlyList<ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.IsActive).Take(take).ToList());
+
+        public Task AddAsync(ManagedChannelSubscription subscription, CancellationToken cancellationToken = default)
+        {
+            Items.Add(subscription);
+            return Task.CompletedTask;
+        }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
     private sealed class FakeAppUserRepository(AppUser user) : IAppUserRepository
     {
         public Task<AppUser?> GetByTelegramUserIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
@@ -159,5 +188,18 @@ public sealed class MiniAppChannelServiceTests
 
         public Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
+    }
+
+    private sealed class FakePostRepository : IPostRepository
+    {
+        public Task<TelegramPost?> GetByChannelAndMessageIdAsync(Guid channelId, long telegramMessageId, CancellationToken cancellationToken = default) => Task.FromResult<TelegramPost?>(null);
+        public Task<IReadOnlyDictionary<long, TelegramPost>> GetByChannelAndMessageIdsAsync(Guid channelId, IReadOnlyCollection<long> telegramMessageIds, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<long, TelegramPost>>(new Dictionary<long, TelegramPost>());
+        public Task<TelegramPost?> GetByIdAsync(Guid postId, CancellationToken cancellationToken = default) => Task.FromResult<TelegramPost?>(null);
+        public Task<IReadOnlyList<TelegramPost>> GetFeedForUserAsync(long telegramUserId, int take, int skip, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
+        public Task<IReadOnlyList<TelegramPost>> GetUndeliveredForChannelAsync(Guid channelId, long? lastDeliveredTelegramMessageId, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
+        public Task<IReadOnlyList<TelegramPost>> GetByChannelAndMediaGroupIdAsync(Guid channelId, string mediaGroupId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
+        public Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<long?>(999);
+        public Task AddAsync(TelegramPost post, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

@@ -403,6 +403,12 @@ public sealed class BotUpdateProcessorTests
         public Task<Domain.Entities.ManagedChannelSubscription?> GetAsync(Guid managedChannelId, Guid channelId, CancellationToken cancellationToken = default) =>
             Task.FromResult<Domain.Entities.ManagedChannelSubscription?>(null);
 
+        public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
+
+        public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
+
         public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
 
