@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Infrastructure.Options;
@@ -14,7 +15,8 @@ namespace TelegramPostAggregator.Infrastructure.Services;
 public sealed class TelegramBotGateway(
     IHttpClientFactory httpClientFactory,
     IOptions<TelegramBotOptions> options,
-    IOptions<MiniAppOptions> miniAppOptions) : ITelegramBotGateway
+    IOptions<MiniAppOptions> miniAppOptions,
+    Microsoft.Extensions.Logging.ILogger<TelegramBotGateway> logger) : ITelegramBotGateway
 {
     private const string DefaultBotApiBaseUrl = "https://api.telegram.org";
     private readonly TelegramBotOptions _options = options.Value;
@@ -27,7 +29,7 @@ public sealed class TelegramBotGateway(
         var response = await CreateClient().GetFromJsonAsync<TelegramApiResponse<List<TelegramGetUpdate>>>(url, cancellationToken);
 
         return response?.Result?
-            .Select(MapUpdate)
+            .Select(update => MapUpdate(update, logger))
             .Where(update => update is not null)
             .Cast<TelegramBotUpdateDto>()
             .ToArray() ?? [];
@@ -401,16 +403,50 @@ public sealed class TelegramBotGateway(
         can_manage_direct_messages = rights.CanManageDirectMessages
     };
 
-    private static TelegramBotUpdateDto? MapUpdate(TelegramGetUpdate update)
+    private static TelegramBotUpdateDto? MapUpdate(TelegramGetUpdate update, Microsoft.Extensions.Logging.ILogger logger)
     {
         var sourceUser = update.Message?.From ?? update.CallbackQuery?.From;
+        var messageChat = update.Message?.Chat;
+        if (sourceUser is null &&
+            update.Message?.ChatShared is not null &&
+            messageChat is not null &&
+            string.Equals(messageChat.Type, "private", StringComparison.OrdinalIgnoreCase))
+        {
+            sourceUser = new TelegramGetUser
+            {
+                Id = messageChat.Id,
+                Username = messageChat.Username,
+                FirstName = messageChat.FirstName,
+                LastName = messageChat.LastName
+            };
+        }
+
         var chatId = update.Message?.Chat?.Id ?? update.CallbackQuery?.Message?.Chat?.Id;
         var text = update.Message?.Text;
         var callbackQueryId = update.CallbackQuery?.Id;
         var callbackData = update.CallbackQuery?.Data;
 
+        if (update.Message?.ChatShared is not null)
+        {
+            logger.LogInformation(
+                "Received chat_shared update. UpdateId={UpdateId}, ChatId={ChatId}, SharedChatId={SharedChatId}, HasSourceUser={HasSourceUser}",
+                update.UpdateId,
+                chatId,
+                update.Message.ChatShared.ChatId,
+                sourceUser is not null);
+        }
+
         if (sourceUser is null)
         {
+            if (update.Message?.ChatShared is not null)
+            {
+                logger.LogWarning(
+                    "Dropping chat_shared update because source user is missing. UpdateId={UpdateId}, ChatId={ChatId}, SharedChatId={SharedChatId}",
+                    update.UpdateId,
+                    chatId,
+                    update.Message.ChatShared.ChatId);
+            }
+
             return null;
         }
 
@@ -498,6 +534,18 @@ public sealed class TelegramBotGateway(
     {
         [JsonPropertyName("id")]
         public long Id { get; set; }
+
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+
+        [JsonPropertyName("username")]
+        public string? Username { get; set; }
+
+        [JsonPropertyName("first_name")]
+        public string? FirstName { get; set; }
+
+        [JsonPropertyName("last_name")]
+        public string? LastName { get; set; }
     }
 
     private sealed class TelegramGetUser
