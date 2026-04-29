@@ -521,6 +521,12 @@ button {
     border: 1px solid rgba(139, 156, 184, 0.24);
 }
 
+.status-pill.available {
+    color: #7ed7ff;
+    background: rgba(56, 189, 248, 0.14);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+}
+
 .channel-warning {
     margin-top: 14px;
     padding: 12px 14px;

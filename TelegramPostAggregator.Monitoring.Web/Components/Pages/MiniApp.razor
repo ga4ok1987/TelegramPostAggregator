@@ -62,7 +62,7 @@
                             <div>
                                 <span class="miniapp-kicker">Client workspace</span>
                                 <h2>My Private Channels</h2>
-                                <p>Channels linked to your bot profile. Start, pause, or remove them from monitoring.</p>
+                                <p>Channels linked to your bot profile. Pause, resume, or remove them from monitoring.</p>
                             </div>
                             <div class="miniapp-user-chip">
                                 <strong>@ViewModel.DisplayName</strong>
@@ -77,7 +77,7 @@
                                 <button class="secondary-action" type="button" @onclick="RefreshAsync" disabled="@ViewModel.IsRefreshing">
                                     @(ViewModel.IsRefreshing ? "Refreshing..." : "Refresh list")
                                 </button>
-                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">Add in bot chat</button>
+                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">Add channels from bot chat</button>
                             </div>
                         </article>
 
@@ -85,8 +85,8 @@
                         {
                             <article class="miniapp-panel empty-state">
                                 <h3>No channels yet</h3>
-                                <p>Add channels from the bot chat first. They will appear here automatically.</p>
-                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">How to add channels</button>
+                                <p>Add channels from the bot chat first, then refresh this list.</p>
+                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">What to do</button>
                             </article>
                         }
                         else
@@ -101,8 +101,8 @@
                                             <div class="channel-meta">
                                                 <div class="channel-name-row">
                                                     <h3>@channel.ChannelName</h3>
-                                                    <span class="status-pill @(channel.IsActive ? "active" : "paused")">
-                                                        @(channel.IsActive ? "Active" : "Stopped")
+                                                    <span class="status-pill @GetStatusCssClass(channel)">
+                                                        @GetStatusLabel(channel)
                                                     </span>
                                                 </div>
                                                 <p class="channel-reference">
@@ -199,7 +199,7 @@
 
     private string CurrentSubtitle => ActiveTab switch
     {
-        MiniAppTab.Channels => "Manage your private channels and their status.",
+        MiniAppTab.Channels => "Manage channels linked to your bot profile.",
         MiniAppTab.Summary => "Summary tools are reserved here for the next iteration.",
         MiniAppTab.Settings => "Fine-tune the Mini App experience.",
         _ => string.Empty
@@ -228,7 +228,13 @@
         ViewModel.ShowPlaceholderAsync("Mini App navigation drawer is reserved for future sections.").AsTask();
 
     private Task ShowAddChannelHintAsync() =>
-        ViewModel.ShowPlaceholderAsync("For now, add a new channel from the bot chat. It will appear here automatically.").AsTask();
+        ViewModel.ShowPlaceholderAsync("Add channels from the bot chat first. They will appear here after refresh.").AsTask();
+
+    private static string GetStatusLabel(MiniAppChannelDto channel) =>
+        channel.IsActive ? "Active" : "Stopped";
+
+    private static string GetStatusCssClass(MiniAppChannelDto channel) =>
+        channel.IsActive ? "active" : "paused";
 
     private Task ShowSettingsHintAsync() =>
         ViewModel.ShowPlaceholderAsync("Settings will be connected in the next iteration.").AsTask();

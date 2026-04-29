@@ -5,9 +5,16 @@ using TelegramPostAggregator.Application.DTOs;
 namespace TelegramPostAggregator.Application.Services;
 
 public sealed class MiniAppChannelService(
-    ISubscriptionRepository subscriptionRepository,
-    Bot.BotLocalizationCatalog localizationCatalog) : IMiniAppChannelService
+    ISubscriptionRepository subscriptionRepository) : IMiniAppChannelService
 {
+    private static readonly HashSet<string> ReservedUiTexts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "start", "stop", "subscriptions", "delete all", "language", "confirm stop",
+        "yes, delete all", "yes, delete", "cancel", "refresh list", "pause all", "delete",
+        "english", "español", "português", "français", "deutsch", "indonesia", "українська",
+        "налаштування", "підписка", "назад"
+    };
+
     public async Task<IReadOnlyList<MiniAppChannelDto>> ListAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
         var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
@@ -62,5 +69,15 @@ public sealed class MiniAppChannelService(
     }
 
     private bool IsReservedUiChannel(string channelName, string channelReference) =>
-        localizationCatalog.IsReservedUiText(channelName) || localizationCatalog.IsReservedUiText(channelReference);
+        IsReservedUiText(channelName) || IsReservedUiText(channelReference);
+
+    private static bool IsReservedUiText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return ReservedUiTexts.Contains(value.Trim());
+    }
 }

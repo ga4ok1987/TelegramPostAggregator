@@ -31,6 +31,12 @@ public sealed class TrackedChannelRepository(AggregatorDbContext dbContext) : IT
             .OrderBy(x => x.ChannelName)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TrackedChannel>> GetKnownChannelsAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.TrackedChannels
+            .Where(x => x.Status == ChannelTrackingStatus.Active && !string.IsNullOrWhiteSpace(x.TelegramChannelId))
+            .OrderBy(x => x.ChannelName)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<TrackedChannel>> GetChannelsByStatusAsync(ChannelTrackingStatus status, CancellationToken cancellationToken = default) =>
         await dbContext.TrackedChannels
             .Where(x => x.Status == status)

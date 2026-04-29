@@ -283,6 +283,7 @@ public sealed class BotUpdateProcessorTests
         public Task<Domain.Entities.TrackedChannel?> GetByTelegramChannelIdAsync(string telegramChannelId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TrackedChannel?>(null);
         public Task<Domain.Entities.TrackedChannel?> GetWithAssignmentsAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<Domain.Entities.TrackedChannel?>(null);
         public Task<IReadOnlyList<Domain.Entities.TrackedChannel>> GetChannelsForUserAsync(long telegramUserId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TrackedChannel>>([]);
+        public Task<IReadOnlyList<Domain.Entities.TrackedChannel>> GetKnownChannelsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TrackedChannel>>([]);
         public Task<IReadOnlyList<Domain.Entities.TrackedChannel>> GetChannelsByStatusAsync(Domain.Enums.ChannelTrackingStatus status, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.TrackedChannel>>([]);
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

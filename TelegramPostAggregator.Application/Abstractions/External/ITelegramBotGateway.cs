@@ -25,4 +25,6 @@ public interface ITelegramBotGateway
     Task<TelegramBotApiResultDto?> SendMediaGroupAsync(TelegramBotMediaGroupMessageDto message, CancellationToken cancellationToken = default);
 
     Task<TelegramBotApiResultDto> AnswerCallbackQueryAsync(string callbackQueryId, string? text, CancellationToken cancellationToken = default);
+
+    Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default);
 }

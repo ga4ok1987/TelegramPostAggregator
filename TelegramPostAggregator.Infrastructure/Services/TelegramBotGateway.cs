@@ -16,6 +16,7 @@ public sealed class TelegramBotGateway(
 {
     private const string DefaultBotApiBaseUrl = "https://api.telegram.org";
     private readonly TelegramBotOptions _options = options.Value;
+    private long? _botUserId;
 
     public async Task<IReadOnlyList<TelegramBotUpdateDto>> GetUpdatesAsync(long offset, CancellationToken cancellationToken = default)
     {
@@ -70,13 +71,31 @@ public sealed class TelegramBotGateway(
         SendMediaAsync("sendAnimation", "animation", message, cancellationToken);
 
     public Task<TelegramBotApiResultDto> SendVideoNoteAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
-        SendMediaAsync("sendVideoNote", "video_note", message with { Caption = string.Empty, ParseMode = null }, cancellationToken);
+        SendMediaAsync("sendVideoNote", "video_note", message, cancellationToken);
 
     public async Task<TelegramBotApiResultDto?> SendMediaGroupAsync(TelegramBotMediaGroupMessageDto message, CancellationToken cancellationToken = default)
     {
         if (message.Items.Count == 0)
         {
             return null;
+        }
+
+        if (_options.UseLocalBotApiFileTransport && message.Items.All(item => File.Exists(item.FilePath)))
+        {
+            var mediaPayload = message.Items.Select(item => CreateMediaPayload(item, item.FilePath)).ToArray();
+
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["chat_id"] = message.ChatId.ToString(),
+                ["media"] = JsonSerializer.Serialize(mediaPayload)
+            });
+
+            using var response = await CreateClient().PostAsync("sendMediaGroup", content, cancellationToken);
+            var localResult = await ToResultAsync(response, cancellationToken);
+            if (localResult.IsSuccessStatusCode)
+            {
+                return localResult;
+            }
         }
 
         var streams = new List<Stream>();
@@ -110,13 +129,19 @@ public sealed class TelegramBotGateway(
             }
 
             using var response = await CreateClient().PostAsync("sendMediaGroup", content, cancellationToken);
-            return await ToResultAsync(response, cancellationToken);
+            var localResult = await ToResultAsync(response, cancellationToken);
+            if (localResult.IsSuccessStatusCode)
+            {
+                return localResult;
+            }
         }
         catch
         {
             DisposeStreams(streams);
             throw;
         }
+
+        return null;
     }
 
     public Task<TelegramBotApiResultDto> AnswerCallbackQueryAsync(string callbackQueryId, string? text, CancellationToken cancellationToken = default) =>
@@ -126,12 +151,72 @@ public sealed class TelegramBotGateway(
             text = string.IsNullOrWhiteSpace(text) ? "Готово" : text
         }, cancellationToken);
 
+    public async Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(telegramChannelId))
+        {
+            return false;
+        }
+
+        var botUserId = await GetBotUserIdAsync(cancellationToken);
+        if (botUserId is null)
+        {
+            return false;
+        }
+
+        using var response = await CreateClient().PostAsJsonAsync("getChatMember", new
+        {
+            chat_id = telegramChannelId,
+            user_id = botUserId.Value
+        }, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return false;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var payload = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (!payload.RootElement.TryGetProperty("ok", out var okElement) || !okElement.GetBoolean())
+        {
+            return false;
+        }
+
+        if (!payload.RootElement.TryGetProperty("result", out var resultElement) ||
+            !resultElement.TryGetProperty("status", out var statusElement))
+        {
+            return false;
+        }
+
+        var status = statusElement.GetString();
+        return string.Equals(status, "administrator", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(status, "creator", StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<TelegramBotApiResultDto> SendMediaAsync(
         string endpoint,
         string fieldName,
         TelegramBotMediaMessageDto message,
         CancellationToken cancellationToken)
     {
+        if (_options.UseLocalBotApiFileTransport && File.Exists(message.FilePath))
+        {
+            using var localContent = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["chat_id"] = message.ChatId.ToString(),
+                [fieldName] = message.FilePath,
+                ["caption"] = message.Caption,
+                ["parse_mode"] = message.ParseMode ?? string.Empty
+            });
+
+            using var localResponse = await CreateClient().PostAsync(endpoint, localContent, cancellationToken);
+            var localResult = await ToResultAsync(localResponse, cancellationToken);
+            if (localResult.IsSuccessStatusCode)
+            {
+                return localResult;
+            }
+        }
+
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(message.ChatId.ToString()), "chat_id");
         content.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
@@ -152,6 +237,23 @@ public sealed class TelegramBotGateway(
     {
         using var response = await CreateClient().PostAsJsonAsync(endpoint, payload, cancellationToken);
         return await ToResultAsync(response, cancellationToken);
+    }
+
+    private async Task<long?> GetBotUserIdAsync(CancellationToken cancellationToken)
+    {
+        if (_botUserId.HasValue)
+        {
+            return _botUserId.Value;
+        }
+
+        var response = await CreateClient().GetFromJsonAsync<TelegramApiResponse<TelegramGetUser>>("getMe", cancellationToken);
+        if (response?.Ok != true || response.Result is null)
+        {
+            return null;
+        }
+
+        _botUserId = response.Result.Id;
+        return _botUserId.Value;
     }
 
     private HttpClient CreateClient()
@@ -212,19 +314,10 @@ public sealed class TelegramBotGateway(
         return new
         {
             keyboard = replyMarkup.Buttons.Select(row =>
-                row.Select(button => button.WebAppUrl is not null
-                    ? new Dictionary<string, object?>
-                    {
-                        ["text"] = button.Text,
-                        ["web_app"] = new Dictionary<string, object?>
-                        {
-                            ["url"] = button.WebAppUrl
-                        }
-                    }
-                    : new Dictionary<string, object?>
-                    {
-                        ["text"] = button.Text
-                    }).ToArray()).ToArray(),
+                row.Select(button => new
+                {
+                    text = button.Text
+                }).ToArray()).ToArray(),
             resize_keyboard = replyMarkup.ResizeKeyboard
         };
     }
