@@ -497,9 +497,10 @@
         }
 
         var currentIndex = GetTabIndex(ActiveTab);
+        var tabCount = Enum.GetValues<MiniAppTab>().Length;
         var targetIndex = deltaX < 0
-            ? Math.Min(currentIndex + 1, Enum.GetValues<MiniAppTab>().Length - 1)
-            : Math.Max(currentIndex - 1, 0);
+            ? (currentIndex + 1) % tabCount
+            : (currentIndex - 1 + tabCount) % tabCount;
 
         if (targetIndex == currentIndex)
         {
