@@ -3,6 +3,7 @@ using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Application.Services;
 using TelegramPostAggregator.Domain.Entities;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace TelegramPostAggregator.Application.Tests;
@@ -23,7 +24,8 @@ public sealed class MiniAppChannelServiceTests
             {
                 ["-1001"] = true,
                 ["-1002"] = false
-            }));
+            }),
+            NullLogger<MiniAppChannelService>.Instance);
 
         var channels = await service.ListAsync(123456789);
 
@@ -41,7 +43,8 @@ public sealed class MiniAppChannelServiceTests
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
                 ["-100200"] = true
-            }));
+            }),
+            NullLogger<MiniAppChannelService>.Instance);
 
         var result = await service.RegisterSharedChannelAsync(
             123456789,
