@@ -48,12 +48,17 @@ public sealed class TelegramMiniAppAuthService(
             return Fail("Telegram authorization hash is missing.");
         }
 
-        var dataCheckString = BuildDataCheckString(parsedData);
+        var dataCheckString = BuildDataCheckString(parsedData, excludeSignature: false);
+        var dataCheckStringWithoutSignature = BuildDataCheckString(parsedData, excludeSignature: true);
         var computedHash = ComputeHash(botToken, dataCheckString);
+        var computedHashWithoutSignature = ComputeHash(botToken, dataCheckStringWithoutSignature);
         var legacyComputedHash = ComputeLegacyCompatibleHash(botToken, dataCheckString);
+        var legacyComputedHashWithoutSignature = ComputeLegacyCompatibleHash(botToken, dataCheckStringWithoutSignature);
 
         if (!FixedTimeEquals(receivedHash, computedHash) &&
-            !FixedTimeEquals(receivedHash, legacyComputedHash))
+            !FixedTimeEquals(receivedHash, computedHashWithoutSignature) &&
+            !FixedTimeEquals(receivedHash, legacyComputedHash) &&
+            !FixedTimeEquals(receivedHash, legacyComputedHashWithoutSignature))
         {
             return Fail("Telegram authorization could not be verified.");
         }
@@ -128,12 +133,14 @@ public sealed class TelegramMiniAppAuthService(
         return true;
     }
 
-    private static string BuildDataCheckString(Dictionary<string, Microsoft.Extensions.Primitives.StringValues> parsedData) =>
+    private static string BuildDataCheckString(
+        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> parsedData,
+        bool excludeSignature) =>
         string.Join(
             "\n",
             parsedData
                 .Where(pair => !string.Equals(pair.Key, HashKey, StringComparison.Ordinal) &&
-                               !string.Equals(pair.Key, SignatureKey, StringComparison.Ordinal))
+                               (!excludeSignature || !string.Equals(pair.Key, SignatureKey, StringComparison.Ordinal)))
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => $"{pair.Key}={pair.Value.ToString()}"));
 
