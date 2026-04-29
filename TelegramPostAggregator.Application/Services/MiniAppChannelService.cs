@@ -9,7 +9,8 @@ namespace TelegramPostAggregator.Application.Services;
 public sealed class MiniAppChannelService(
     IManagedChannelRepository managedChannelRepository,
     IAppUserRepository appUserRepository,
-    ITelegramBotGateway telegramBotGateway) : IMiniAppChannelService
+    ITelegramBotGateway telegramBotGateway,
+    Microsoft.Extensions.Logging.ILogger<MiniAppChannelService> logger) : IMiniAppChannelService
 {
     public async Task<IReadOnlyList<MiniAppChannelDto>> ListAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
@@ -43,15 +44,27 @@ public sealed class MiniAppChannelService(
 
     public async Task<ManagedChannelRegistrationResultDto> RegisterSharedChannelAsync(long telegramUserId, TelegramSharedChatDto sharedChat, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation(
+            "Registering shared channel. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}, Title={Title}, Username={Username}",
+            telegramUserId,
+            sharedChat.ChatId,
+            sharedChat.Title,
+            sharedChat.Username);
+
         var user = await appUserRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken);
         if (user is null)
         {
+            logger.LogWarning("Shared channel registration aborted because app user was not found. TelegramUserId={TelegramUserId}", telegramUserId);
             return new ManagedChannelRegistrationResultDto(false, "Start the bot first, then add your channel again.");
         }
 
         var isBotAdministrator = await telegramBotGateway.IsBotAdministratorAsync(sharedChat.ChatId.ToString(), cancellationToken);
         if (!isBotAdministrator)
         {
+            logger.LogWarning(
+                "Shared channel registration aborted because bot is not administrator. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}",
+                telegramUserId,
+                sharedChat.ChatId);
             return new ManagedChannelRegistrationResultDto(false, "The bot is not an administrator in this channel yet.");
         }
 
@@ -82,6 +95,11 @@ public sealed class MiniAppChannelService(
 
         if (!probeResult.IsSuccessStatusCode)
         {
+            logger.LogWarning(
+                "Shared channel registration probe failed. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}, Response={ResponseBody}",
+                telegramUserId,
+                sharedChat.ChatId,
+                probeResult.ResponseBody);
             managedChannel.LastWriteError = probeResult.ResponseBody ?? "The bot could not post to this channel.";
             managedChannel.IsActive = false;
 
@@ -103,6 +121,11 @@ public sealed class MiniAppChannelService(
         }
 
         await managedChannelRepository.SaveChangesAsync(cancellationToken);
+        logger.LogInformation(
+            "Shared channel registration saved successfully. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}, ManagedChannelId={ManagedChannelId}",
+            telegramUserId,
+            sharedChat.ChatId,
+            managedChannel.Id);
         return new ManagedChannelRegistrationResultDto(true, $"Channel connected: {managedChannel.ChannelName}");
     }
 
