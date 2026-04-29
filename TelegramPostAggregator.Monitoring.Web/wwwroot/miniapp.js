@@ -29,5 +29,16 @@ window.channelsMonitorMiniApp = {
         }
 
         window.alert(message);
+    },
+
+    showConfirm: function (message) {
+        const webApp = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+        if (webApp && webApp.showConfirm) {
+            return new Promise(resolve => {
+                webApp.showConfirm(message, confirmed => resolve(!!confirmed));
+            });
+        }
+
+        return Promise.resolve(window.confirm(message));
     }
 };

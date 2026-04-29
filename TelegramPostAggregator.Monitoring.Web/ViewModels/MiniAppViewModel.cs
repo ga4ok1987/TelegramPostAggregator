@@ -135,6 +135,9 @@ public sealed class MiniAppViewModel(
     public ValueTask ShowPlaceholderAsync(string message) =>
         jsRuntime.InvokeVoidAsync("channelsMonitorMiniApp.showAlert", message);
 
+    public ValueTask<bool> ConfirmAsync(string message) =>
+        jsRuntime.InvokeAsync<bool>("channelsMonitorMiniApp.showConfirm", message);
+
     public bool IsChannelBusy(Guid channelId) => PendingChannelIds.Contains(channelId);
 
     public bool IsSubscriptionBusy(Guid subscriptionId) => PendingSubscriptionIds.Contains(subscriptionId);

@@ -399,11 +399,16 @@ button {
     gap: 16px;
 }
 
+.miniapp-content {
+    min-height: calc(100vh - 180px);
+}
+
 .miniapp-tab-stage {
     animation-duration: 280ms;
     animation-timing-function: cubic-bezier(.22, .8, .2, 1);
     animation-fill-mode: both;
     will-change: transform, opacity;
+    min-height: calc(100vh - 210px);
 }
 
 .miniapp-tab-stage.tab-enter-left {
@@ -762,6 +767,7 @@ button {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-height: 0;
 }
 
 .panel-label {
@@ -952,6 +958,14 @@ button {
     .miniapp-screen {
         padding-left: 12px;
         padding-right: 12px;
+    }
+
+    .miniapp-content {
+        min-height: calc(100vh - 170px);
+    }
+
+    .miniapp-tab-stage {
+        min-height: calc(100vh - 200px);
     }
 
     .channel-name-row,

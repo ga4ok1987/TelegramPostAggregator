@@ -6,7 +6,7 @@
 
 <PageTitle>Channels Monitor Mini App</PageTitle>
 
-<div class="miniapp-screen">
+<div class="miniapp-screen" @ontouchstart="HandleTouchStart" @ontouchend="HandleTouchEnd">
     <header class="miniapp-topbar">
         <button class="icon-button" type="button" @onclick="OpenDrawerAsync" aria-label="Menu">
             <span></span>
@@ -54,7 +54,7 @@
         }
         else
         {
-            <section class="miniapp-tab-stage @TabTransitionClass" @ontouchstart="HandleTouchStart" @ontouchend="HandleTouchEnd">
+            <section class="miniapp-tab-stage @TabTransitionClass">
                 @switch (ActiveTab)
                 {
                     case MiniAppTab.Channels:
@@ -414,13 +414,9 @@
 
     private async Task StopAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.StopChannelAsync(channelId));
 
-    private async Task DeleteAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.DeleteChannelAsync(channelId));
-
     private async Task StartSubscriptionAsync(Guid channelId, Guid subscriptionId) => await ExecuteAsync(() => ViewModel.StartSubscriptionAsync(channelId, subscriptionId));
 
     private async Task StopSubscriptionAsync(Guid channelId, Guid subscriptionId) => await ExecuteAsync(() => ViewModel.StopSubscriptionAsync(channelId, subscriptionId));
-
-    private async Task DeleteSubscriptionAsync(Guid channelId, Guid subscriptionId) => await ExecuteAsync(() => ViewModel.DeleteSubscriptionAsync(channelId, subscriptionId));
 
     private void OpenSubscriptions(MiniAppChannelDto channel) => SelectedChannel = channel;
 
@@ -464,6 +460,28 @@
     {
         await ViewModel.RefreshChannelsAsync();
         return true;
+    }
+
+    private async Task DeleteAsync(Guid channelId)
+    {
+        var confirmed = await ViewModel.ConfirmAsync("Delete this connected channel?");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        await ExecuteAsync(() => ViewModel.DeleteChannelAsync(channelId));
+    }
+
+    private async Task DeleteSubscriptionAsync(Guid channelId, Guid subscriptionId)
+    {
+        var confirmed = await ViewModel.ConfirmAsync("Delete this subscription?");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        await ExecuteAsync(() => ViewModel.DeleteSubscriptionAsync(channelId, subscriptionId));
     }
 
     private void HandleTouchStart(TouchEventArgs args)
