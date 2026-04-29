@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
