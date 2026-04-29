@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.DTOs;
@@ -16,9 +17,11 @@ public sealed class TelegramBotGateway(
     IHttpClientFactory httpClientFactory,
     IOptions<TelegramBotOptions> options,
     IOptions<MiniAppOptions> miniAppOptions,
+    IMemoryCache memoryCache,
     Microsoft.Extensions.Logging.ILogger<TelegramBotGateway> logger) : ITelegramBotGateway
 {
     private const string DefaultBotApiBaseUrl = "https://api.telegram.org";
+    private static readonly TimeSpan ChatPhotoCacheDuration = TimeSpan.FromMinutes(20);
     private readonly TelegramBotOptions _options = options.Value;
     private readonly MiniAppOptions _miniAppOptions = miniAppOptions.Value;
     private long? _botUserId;
@@ -219,6 +222,23 @@ public sealed class TelegramBotGateway(
         }, cancellationToken);
     }
 
+    public Task<string?> GetChatProfileImageDataUrlAsync(string telegramChatReference, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(telegramChatReference))
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        var normalizedReference = telegramChatReference.Trim();
+        return memoryCache.GetOrCreateAsync(
+            $"telegram-chat-photo:{normalizedReference}",
+            async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = ChatPhotoCacheDuration;
+                return await GetChatProfileImageDataUrlCoreAsync(normalizedReference, cancellationToken);
+            });
+    }
+
     private async Task<TelegramBotApiResultDto> SendMediaAsync(
         string endpoint,
         string fieldName,
@@ -265,6 +285,108 @@ public sealed class TelegramBotGateway(
         return await ToResultAsync(response, cancellationToken);
     }
 
+    private async Task<string?> GetChatProfileImageDataUrlCoreAsync(string telegramChatReference, CancellationToken cancellationToken)
+    {
+        var photoFileId = await GetChatPhotoFileIdAsync(telegramChatReference, cancellationToken);
+        if (string.IsNullOrWhiteSpace(photoFileId))
+        {
+            return null;
+        }
+
+        var filePath = await GetFilePathAsync(photoFileId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        var fileUri = BuildFileUri(filePath);
+        using var response = await httpClientFactory.CreateClient(nameof(TelegramBotGateway)).GetAsync(fileUri, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (bytes.Length == 0)
+        {
+            return null;
+        }
+
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            mediaType = InferImageMediaType(filePath);
+        }
+
+        return $"data:{mediaType};base64,{Convert.ToBase64String(bytes)}";
+    }
+
+    private async Task<string?> GetChatPhotoFileIdAsync(string telegramChatReference, CancellationToken cancellationToken)
+    {
+        using var response = await CreateClient().PostAsJsonAsync("getChat", new
+        {
+            chat_id = telegramChatReference
+        }, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var payload = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (!payload.RootElement.TryGetProperty("ok", out var okElement) || !okElement.GetBoolean())
+        {
+            return null;
+        }
+
+        if (!payload.RootElement.TryGetProperty("result", out var resultElement) ||
+            !resultElement.TryGetProperty("photo", out var photoElement))
+        {
+            return null;
+        }
+
+        if (photoElement.TryGetProperty("small_file_id", out var smallFileIdElement))
+        {
+            return smallFileIdElement.GetString();
+        }
+
+        if (photoElement.TryGetProperty("big_file_id", out var bigFileIdElement))
+        {
+            return bigFileIdElement.GetString();
+        }
+
+        return null;
+    }
+
+    private async Task<string?> GetFilePathAsync(string fileId, CancellationToken cancellationToken)
+    {
+        using var response = await CreateClient().PostAsJsonAsync("getFile", new
+        {
+            file_id = fileId
+        }, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var payload = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (!payload.RootElement.TryGetProperty("ok", out var okElement) || !okElement.GetBoolean())
+        {
+            return null;
+        }
+
+        if (!payload.RootElement.TryGetProperty("result", out var resultElement) ||
+            !resultElement.TryGetProperty("file_path", out var filePathElement))
+        {
+            return null;
+        }
+
+        return filePathElement.GetString();
+    }
+
     private async Task<long?> GetBotUserIdAsync(CancellationToken cancellationToken)
     {
         if (_botUserId.HasValue)
@@ -285,13 +407,17 @@ public sealed class TelegramBotGateway(
     private HttpClient CreateClient()
     {
         var client = httpClientFactory.CreateClient(nameof(TelegramBotGateway));
-        var baseUrl = string.IsNullOrWhiteSpace(_options.LocalBotApiBaseUrl)
-            ? DefaultBotApiBaseUrl
-            : _options.LocalBotApiBaseUrl.TrimEnd('/');
-
-        client.BaseAddress = new Uri($"{baseUrl}/bot{_options.BotToken}/");
+        client.BaseAddress = new Uri($"{GetBotApiBaseUrl()}/bot{_options.BotToken}/");
         return client;
     }
+
+    private Uri BuildFileUri(string filePath) =>
+        new($"{GetBotApiBaseUrl()}/file/bot{_options.BotToken}/{filePath.TrimStart('/')}");
+
+    private string GetBotApiBaseUrl() =>
+        string.IsNullOrWhiteSpace(_options.LocalBotApiBaseUrl)
+            ? DefaultBotApiBaseUrl
+            : _options.LocalBotApiBaseUrl.TrimEnd('/');
 
     private static async Task<TelegramBotApiResultDto> ToResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
@@ -492,6 +618,18 @@ public sealed class TelegramBotGateway(
         {
             stream.Dispose();
         }
+    }
+
+    private static string InferImageMediaType(string filePath)
+    {
+        var extension = Path.GetExtension(filePath);
+        return extension.ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            _ => "image/jpeg"
+        };
     }
 
     private sealed class TelegramApiResponse<T>

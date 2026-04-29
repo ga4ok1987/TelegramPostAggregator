@@ -29,4 +29,6 @@ public interface ITelegramBotGateway
     Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default);
 
     Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default);
+
+    Task<string?> GetChatProfileImageDataUrlAsync(string telegramChatReference, CancellationToken cancellationToken = default);
 }

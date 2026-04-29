@@ -18,6 +18,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddMemoryCache();
         services.Configure<DatabaseOptions>(configuration.GetSection(DatabaseOptions.SectionName));
         services.Configure<TdLibOptions>(configuration.GetSection(TdLibOptions.SectionName));
         services.Configure<CollectorBootstrapOptions>(configuration.GetSection(CollectorBootstrapOptions.SectionName));
@@ -71,6 +72,7 @@ public static class DependencyInjection
 
     public static IServiceCollection AddMonitoringInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddMemoryCache();
         services.Configure<DatabaseOptions>(configuration.GetSection(DatabaseOptions.SectionName));
         services.Configure<TelegramBotOptions>(configuration.GetSection(TelegramBotOptions.SectionName));
 

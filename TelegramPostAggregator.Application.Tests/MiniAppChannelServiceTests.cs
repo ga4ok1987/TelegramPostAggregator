@@ -37,6 +37,54 @@ public sealed class MiniAppChannelServiceTests
     }
 
     [Fact]
+    public async Task ListAsync_Maps_Channel_And_Subscription_Avatars()
+    {
+        var user = CreateUser();
+        var managedChannel = CreateManagedChannel(user, "Alpha", -1001, "alpha", true);
+        var sourceChannelId = Guid.NewGuid();
+
+        var service = new MiniAppChannelService(
+            new FakeManagedChannelRepository([managedChannel]),
+            new FakeManagedChannelSubscriptionRepository(
+            [
+                new ManagedChannelSubscription
+                {
+                    Id = Guid.NewGuid(),
+                    ManagedChannelId = managedChannel.Id,
+                    ManagedChannel = managedChannel,
+                    ChannelId = sourceChannelId,
+                    Channel = new TrackedChannel
+                    {
+                        Id = sourceChannelId,
+                        ChannelName = "Source One",
+                        UsernameOrInviteLink = "@source_one"
+                    },
+                    IsActive = true
+                }
+            ]),
+            new FakeAppUserRepository(user),
+            new FakePostRepository(),
+            new FakeTelegramBotGateway(
+                new Dictionary<string, bool>
+                {
+                    ["-1001"] = true
+                },
+                new Dictionary<string, string?>
+                {
+                    ["-1001"] = "data:image/png;base64,alpha",
+                    ["@source_one"] = "data:image/png;base64,source"
+                }),
+            NullLogger<MiniAppChannelService>.Instance);
+
+        var channels = await service.ListAsync(user.TelegramUserId);
+
+        var channel = Assert.Single(channels);
+        Assert.Equal("data:image/png;base64,alpha", channel.AvatarImageUrl);
+        var subscription = Assert.Single(channel.Subscriptions);
+        Assert.Equal("data:image/png;base64,source", subscription.AvatarImageUrl);
+    }
+
+    [Fact]
     public async Task RegisterSharedChannelAsync_Saves_Channel_And_Probes_Posting()
     {
         var repository = new FakeManagedChannelRepository([]);
@@ -198,7 +246,9 @@ public sealed class MiniAppChannelServiceTests
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeTelegramBotGateway(IReadOnlyDictionary<string, bool> adminChannels) : ITelegramBotGateway
+    private sealed class FakeTelegramBotGateway(
+        IReadOnlyDictionary<string, bool> adminChannels,
+        IReadOnlyDictionary<string, string?>? avatars = null) : ITelegramBotGateway
     {
         public Task<IReadOnlyList<TelegramBotUpdateDto>> GetUpdatesAsync(long offset, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<TelegramBotUpdateDto>>([]);
@@ -238,6 +288,12 @@ public sealed class MiniAppChannelServiceTests
 
         public Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
+
+        public Task<string?> GetChatProfileImageDataUrlAsync(string telegramChatReference, CancellationToken cancellationToken = default) =>
+            Task.FromResult(
+                avatars is not null && avatars.TryGetValue(telegramChatReference, out var avatar)
+                    ? avatar
+                    : null);
     }
 
     private sealed class FakePostRepository : IPostRepository

@@ -37,21 +37,17 @@ public sealed class MiniAppChannelService(
             IsBotAdministrator = await telegramBotGateway.IsBotAdministratorAsync(channel.TelegramChatId.ToString(), cancellationToken)
         }));
 
-        return adminChecks
+        var visibleChannels = adminChecks
             .Where(result => result.IsBotAdministrator)
             .Select(result => result.Channel)
             .OrderByDescending(channel => channel.IsActive)
             .ThenBy(channel => channel.ChannelName)
-            .Select(channel => new MiniAppChannelDto(
-                channel.Id,
-                channel.ChannelName,
-                BuildChannelReference(channel),
-                channel.IsActive ? "Connected" : "Paused",
-                channel.IsActive,
-                channel.LastWriteSucceededAtUtc ?? channel.LastVerifiedAtUtc,
-                channel.LastWriteError,
-                BuildSubscriptionDtos(subscriptionsByManagedChannelId, channel.Id)))
             .ToList();
+
+        var channelDtos = await Task.WhenAll(visibleChannels.Select(channel =>
+            BuildChannelDtoAsync(channel, subscriptionsByManagedChannelId, cancellationToken)));
+
+        return channelDtos;
     }
 
     public async Task<ManagedChannelRegistrationResultDto> RegisterSharedChannelAsync(long telegramUserId, TelegramSharedChatDto sharedChat, CancellationToken cancellationToken = default)
@@ -265,24 +261,71 @@ public sealed class MiniAppChannelService(
     private static string? NormalizeUsername(string? username) =>
         string.IsNullOrWhiteSpace(username) ? null : username.Trim().TrimStart('@');
 
-    private static IReadOnlyList<MiniAppSourceSubscriptionDto> BuildSubscriptionDtos(
+    private async Task<MiniAppChannelDto> BuildChannelDtoAsync(
+        ManagedChannel channel,
         IReadOnlyDictionary<Guid, IReadOnlyList<ManagedChannelSubscription>> subscriptionsByManagedChannelId,
-        Guid managedChannelId)
+        CancellationToken cancellationToken)
+    {
+        var avatarImageUrl = await telegramBotGateway.GetChatProfileImageDataUrlAsync(channel.TelegramChatId.ToString(), cancellationToken);
+        var subscriptions = await BuildSubscriptionDtosAsync(subscriptionsByManagedChannelId, channel.Id, cancellationToken);
+
+        return new MiniAppChannelDto(
+            channel.Id,
+            channel.ChannelName,
+            BuildChannelReference(channel),
+            avatarImageUrl,
+            channel.IsActive ? "Connected" : "Paused",
+            channel.IsActive,
+            channel.LastWriteSucceededAtUtc ?? channel.LastVerifiedAtUtc,
+            channel.LastWriteError,
+            subscriptions);
+    }
+
+    private async Task<IReadOnlyList<MiniAppSourceSubscriptionDto>> BuildSubscriptionDtosAsync(
+        IReadOnlyDictionary<Guid, IReadOnlyList<ManagedChannelSubscription>> subscriptionsByManagedChannelId,
+        Guid managedChannelId,
+        CancellationToken cancellationToken)
     {
         if (!subscriptionsByManagedChannelId.TryGetValue(managedChannelId, out var subscriptions))
         {
             return [];
         }
 
-        return subscriptions.Select(subscription => new MiniAppSourceSubscriptionDto(
-            subscription.Id,
-            subscription.ChannelId,
-            subscription.Channel.ChannelName,
-            subscription.Channel.UsernameOrInviteLink,
-            subscription.IsActive ? "Active" : "Paused",
-            subscription.IsActive,
-            subscription.LastDeliveredAtUtc,
-            subscription.Channel.LastCollectorError))
-            .ToList();
+        var subscriptionDtos = await Task.WhenAll(subscriptions.Select(async subscription =>
+        {
+            var avatarImageUrl = await telegramBotGateway.GetChatProfileImageDataUrlAsync(
+                BuildTrackedChannelReference(subscription.Channel),
+                cancellationToken);
+
+            return new MiniAppSourceSubscriptionDto(
+                subscription.Id,
+                subscription.ChannelId,
+                subscription.Channel.ChannelName,
+                subscription.Channel.UsernameOrInviteLink,
+                avatarImageUrl,
+                subscription.IsActive ? "Active" : "Paused",
+                subscription.IsActive,
+                subscription.LastDeliveredAtUtc,
+                subscription.Channel.LastCollectorError);
+        }));
+
+        return subscriptionDtos;
+    }
+
+    private static string BuildTrackedChannelReference(TrackedChannel channel)
+    {
+        var reference = channel.UsernameOrInviteLink?.Trim() ?? string.Empty;
+        if (reference.StartsWith("https://t.me/", StringComparison.OrdinalIgnoreCase))
+        {
+            var slug = reference["https://t.me/".Length..].Trim('/');
+            if (!string.IsNullOrWhiteSpace(slug) &&
+                !slug.StartsWith("+", StringComparison.Ordinal) &&
+                !slug.Contains('/'))
+            {
+                return $"@{slug.TrimStart('@')}";
+            }
+        }
+
+        return reference;
     }
 }

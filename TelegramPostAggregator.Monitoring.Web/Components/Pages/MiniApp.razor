@@ -58,26 +58,13 @@
             {
                 case MiniAppTab.Channels:
                     <section class="miniapp-stack">
-                        <article class="miniapp-hero">
-                            <div>
-                                <span class="miniapp-kicker">Client workspace</span>
-                                <h2>My Private Channels</h2>
-                                <p>Channels that you explicitly shared with the bot and where it can already post messages.</p>
-                            </div>
-                            <div class="miniapp-user-chip">
-                                <strong>@ViewModel.DisplayName</strong>
-                                <span>@(ViewModel.IsAuthenticated
-                                    ? (string.IsNullOrWhiteSpace(ViewModel.Username) ? "Verified Telegram session" : $"@{ViewModel.Username?.TrimStart('@')}")
-                                    : "Authorization required")</span>
-                            </div>
-                        </article>
-
-                        <article class="miniapp-panel">
-                            <div class="channel-actions">
-                                <button class="secondary-action" type="button" @onclick="RefreshAsync" disabled="@ViewModel.IsRefreshing">
+                        <article class="miniapp-copy-block">
+                            <p>Manage your private channels and their status</p>
+                            <div class="miniapp-copy-actions">
+                                <button class="secondary-action slim" type="button" @onclick="RefreshAsync" disabled="@ViewModel.IsRefreshing">
                                     @(ViewModel.IsRefreshing ? "Refreshing..." : "Refresh list")
                                 </button>
-                                <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">Add channels from bot chat</button>
+                                <button class="secondary-action slim" type="button" @onclick="ShowAddChannelHintAsync">How to add</button>
                             </div>
                         </article>
 
@@ -97,7 +84,16 @@
                                     var isBusy = ViewModel.IsChannelBusy(channel.ChannelId);
                                     <article class="channel-card">
                                         <div class="channel-card-header">
-                                            <div class="channel-avatar">@BuildAvatar(channel.ChannelName)</div>
+                                            <div class="channel-avatar">
+                                                @if (!string.IsNullOrWhiteSpace(channel.AvatarImageUrl))
+                                                {
+                                                    <img src="@channel.AvatarImageUrl" alt="@channel.ChannelName logo" loading="lazy" />
+                                                }
+                                                else
+                                                {
+                                                    <span>@BuildAvatar(channel.ChannelName)</span>
+                                                }
+                                            </div>
                                             <div class="channel-meta">
                                                 <div class="channel-name-row">
                                                     <h3>@channel.ChannelName</h3>
@@ -106,16 +102,16 @@
                                                     </span>
                                                 </div>
                                                 <p class="channel-reference">
-                                                    @if (TryBuildReferenceHref(channel.ChannelReference, out var referenceHref))
+                                                    @if (TryBuildReferenceHref(channel.ChannelReference, out var channelReferenceHref))
                                                     {
-                                                        <a href="@referenceHref" target="_blank" rel="noreferrer noopener">@FormatReference(channel.ChannelReference)</a>
+                                                        <a href="@channelReferenceHref" target="_blank" rel="noreferrer noopener">@FormatReference(channel.ChannelReference)</a>
                                                     }
                                                     else
                                                     {
                                                         @FormatReference(channel.ChannelReference)
                                                     }
                                                 </p>
-                                                <p class="channel-sync">Last verified: @FormatDate(channel.LastPostCollectedAtUtc)</p>
+                                                <p class="channel-sync">Last sync: @FormatDate(channel.LastPostCollectedAtUtc)</p>
                                             </div>
                                         </div>
 
@@ -124,16 +120,30 @@
                                             <div class="channel-warning">@channel.LastCollectorError</div>
                                         }
 
+                                        <div class="channel-tools">
+                                            <button class="channel-tool" type="button" @onclick="() => OpenSubscriptions(channel)" disabled="@isBusy">
+                                                Subscriptions
+                                            </button>
+                                        </div>
+
                                         <div class="channel-actions">
-                                            <button class="channel-action meta" type="button" @onclick="() => OpenSubscriptions(channel)" disabled="@isBusy">Subscriptions</button>
-                                            <button class="channel-action icon start" type="button" title="Start" aria-label="Start" @onclick="() => StartAsync(channel.ChannelId)" disabled="@(channel.IsActive || isBusy)">
-                                                <span class="action-icon">▶</span>
+                                            <button class="channel-action start" type="button" title="Start" aria-label="Start" @onclick="() => StartAsync(channel.ChannelId)" disabled="@(channel.IsActive || isBusy)">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M8 6v12l10-6z" fill="currentColor" />
+                                                </svg>
+                                                <span>Start</span>
                                             </button>
-                                            <button class="channel-action icon stop" type="button" title="Stop" aria-label="Stop" @onclick="() => StopAsync(channel.ChannelId)" disabled="@(!channel.IsActive || isBusy)">
-                                                <span class="action-icon">⏸</span>
+                                            <button class="channel-action stop" type="button" title="Stop" aria-label="Stop" @onclick="() => StopAsync(channel.ChannelId)" disabled="@(!channel.IsActive || isBusy)">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M7 6h4v12H7zm6 0h4v12h-4z" fill="currentColor" />
+                                                </svg>
+                                                <span>Stop</span>
                                             </button>
-                                            <button class="channel-action icon delete" type="button" title="Delete" aria-label="Delete" @onclick="() => DeleteAsync(channel.ChannelId)" disabled="@isBusy">
-                                                <span class="action-icon">🗑</span>
+                                            <button class="channel-action delete" type="button" title="Delete" aria-label="Delete" @onclick="() => DeleteAsync(channel.ChannelId)" disabled="@isBusy">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v8h-2zm4 0h2v8h-2zM7 9h2v8H7zm1 11h8a2 2 0 0 0 2-2V8H6v10a2 2 0 0 0 2 2z" fill="currentColor" />
+                                                </svg>
+                                                <span>Delete</span>
                                             </button>
                                         </div>
                                     </article>
@@ -152,14 +162,61 @@
                             </div>
                         </article>
 
+                        <article class="miniapp-panel form-panel">
+                            <label class="panel-label">Select Date</label>
+                            <button class="select-button" type="button" disabled>
+                                <span>26 Apr 2026</span>
+                                <span class="select-arrow">v</span>
+                            </button>
+                        </article>
+
+                        <article class="miniapp-panel form-panel">
+                            <label class="panel-label">Filters</label>
+                            <div class="summary-checklist">
+                                <label><input type="checkbox" checked disabled /> Include media</label>
+                                <label><input type="checkbox" checked disabled /> Include edited posts</label>
+                                <label><input type="checkbox" checked disabled /> Group duplicates</label>
+                            </div>
+                        </article>
+
+                        <article class="miniapp-panel action-panel">
+                            <button class="primary-action wide" type="button" disabled>Generate Summary</button>
+                        </article>
+
                         <article class="miniapp-panel placeholder-panel">
-                            <h3>Summary is coming next</h3>
-                            <p>This screen is reserved for daily and range summaries, duplicate groups, and highlights.</p>
-                            <ul class="placeholder-list">
-                                <li>Calendar filters</li>
-                                <li>Media and edited-post toggles</li>
-                                <li>Generate summary action</li>
-                            </ul>
+                            <div class="summary-block-title">
+                                <h3>Last Summary</h3>
+                                <button class="secondary-action slim" type="button" disabled>View Summary</button>
+                            </div>
+                            <div class="summary-metrics">
+                                <p>25 Apr 2026</p>
+                                <p>Channels analyzed: 5</p>
+                                <p>Posts: 124</p>
+                            </div>
+                        </article>
+
+                        <article class="miniapp-panel placeholder-panel">
+                            <h3>Summary Preview</h3>
+                            <div class="summary-preview-grid">
+                                <div>
+                                    <h4>Top topics</h4>
+                                    <ul class="placeholder-list">
+                                        <li>War updates</li>
+                                        <li>Politics</li>
+                                        <li>Economy</li>
+                                        <li>Other</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h4>Highlights</h4>
+                                    <ol class="placeholder-list ordered">
+                                        <li>Significant escalation in the east.</li>
+                                        <li>New economic measures announced.</li>
+                                        <li>International reactions and statements.</li>
+                                    </ol>
+                                </div>
+                            </div>
+                            <button class="secondary-action wide" type="button" disabled>View Full Summary</button>
                         </article>
                     </section>
                     break;
@@ -203,7 +260,7 @@
                         <p>Manage source channels for this destination channel.</p>
                     </div>
                     <button class="icon-button" type="button" @onclick="CloseSubscriptions" aria-label="Close subscriptions">
-                        <span class="close-glyph">×</span>
+                        <span class="close-glyph">x</span>
                     </button>
                 </div>
 
@@ -222,7 +279,16 @@
                             var subscriptionBusy = ViewModel.IsSubscriptionBusy(subscription.SubscriptionId);
                             <article class="channel-card nested-card">
                                 <div class="channel-card-header">
-                                    <div class="channel-avatar">@BuildAvatar(subscription.ChannelName)</div>
+                                    <div class="channel-avatar">
+                                        @if (!string.IsNullOrWhiteSpace(subscription.AvatarImageUrl))
+                                        {
+                                            <img src="@subscription.AvatarImageUrl" alt="@subscription.ChannelName logo" loading="lazy" />
+                                        }
+                                        else
+                                        {
+                                            <span>@BuildAvatar(subscription.ChannelName)</span>
+                                        }
+                                    </div>
                                     <div class="channel-meta">
                                         <div class="channel-name-row">
                                             <h4>@subscription.ChannelName</h4>
@@ -250,14 +316,23 @@
                                 }
 
                                 <div class="channel-actions compact-actions">
-                                    <button class="channel-action icon start" type="button" title="Start" aria-label="Start subscription" @onclick="() => StartSubscriptionAsync(SelectedChannel.ChannelId, subscription.SubscriptionId)" disabled="@(subscription.IsActive || subscriptionBusy || !SelectedChannel.IsActive)">
-                                        <span class="action-icon">▶</span>
+                                    <button class="channel-action start" type="button" title="Start" aria-label="Start subscription" @onclick="() => StartSubscriptionAsync(SelectedChannel.ChannelId, subscription.SubscriptionId)" disabled="@(subscription.IsActive || subscriptionBusy || !SelectedChannel.IsActive)">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M8 6v12l10-6z" fill="currentColor" />
+                                        </svg>
+                                        <span>Start</span>
                                     </button>
-                                    <button class="channel-action icon stop" type="button" title="Stop" aria-label="Stop subscription" @onclick="() => StopSubscriptionAsync(SelectedChannel.ChannelId, subscription.SubscriptionId)" disabled="@(!subscription.IsActive || subscriptionBusy)">
-                                        <span class="action-icon">⏸</span>
+                                    <button class="channel-action stop" type="button" title="Stop" aria-label="Stop subscription" @onclick="() => StopSubscriptionAsync(SelectedChannel.ChannelId, subscription.SubscriptionId)" disabled="@(!subscription.IsActive || subscriptionBusy)">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M7 6h4v12H7zm6 0h4v12h-4z" fill="currentColor" />
+                                        </svg>
+                                        <span>Stop</span>
                                     </button>
-                                    <button class="channel-action icon delete" type="button" title="Delete" aria-label="Delete subscription" @onclick="() => DeleteSubscriptionAsync(SelectedChannel.ChannelId, subscription.SubscriptionId)" disabled="@subscriptionBusy">
-                                        <span class="action-icon">🗑</span>
+                                    <button class="channel-action delete" type="button" title="Delete" aria-label="Delete subscription" @onclick="() => DeleteSubscriptionAsync(SelectedChannel.ChannelId, subscription.SubscriptionId)" disabled="@subscriptionBusy">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v8h-2zm4 0h2v8h-2zM7 9h2v8H7zm1 11h8a2 2 0 0 0 2-2V8H6v10a2 2 0 0 0 2 2z" fill="currentColor" />
+                                        </svg>
+                                        <span>Delete</span>
                                     </button>
                                 </div>
                             </article>
@@ -283,9 +358,9 @@
 
     private string CurrentSubtitle => ActiveTab switch
     {
-        MiniAppTab.Channels => "Manage channels where the bot has admin access.",
-        MiniAppTab.Summary => "Summary tools are reserved here for the next iteration.",
-        MiniAppTab.Settings => "Fine-tune the Mini App experience.",
+        MiniAppTab.Channels => "Channels where the bot is already an admin.",
+        MiniAppTab.Summary => "Daily overview and highlights.",
+        MiniAppTab.Settings => "Future notification and preference controls.",
         _ => string.Empty
     };
 
@@ -339,7 +414,7 @@
     private Task ShowSettingsHintAsync() =>
         ViewModel.ShowPlaceholderAsync("Settings will be connected in the next iteration.").AsTask();
 
-    private async Task RefreshAsync() => await ExecuteAsync(() => RefreshViewModelAsync());
+    private async Task RefreshAsync() => await ExecuteAsync(RefreshViewModelAsync);
 
     private async Task ExecuteAsync(Func<Task<bool>> action)
     {
@@ -348,6 +423,7 @@
         {
             SelectedChannel = ViewModel.Channels.FirstOrDefault(x => x.ChannelId == SelectedChannel.ChannelId);
         }
+
         await InvokeAsync(StateHasChanged);
     }
 
