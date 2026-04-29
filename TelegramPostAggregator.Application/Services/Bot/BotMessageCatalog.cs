@@ -117,6 +117,9 @@ public sealed class BotMessageCatalog(BotLocalizationCatalog localizationCatalog
     public string LanguageSelectionPrompt(string languageCode) =>
         localizationCatalog.GetLocale(languageCode).LanguageSelectionPrompt;
 
+    public string ManagedChannelsPrompt() =>
+        "Use the channel picker button to select a private channel where the bot is already an administrator.";
+
     public string BuildLanguageUpdatedMessage(string selectedLanguageCode, string currentLanguageCode)
     {
         var locale = localizationCatalog.GetLocale(currentLanguageCode);

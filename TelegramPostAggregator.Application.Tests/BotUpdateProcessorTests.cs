@@ -206,6 +206,7 @@ public sealed class BotUpdateProcessorTests
         return new BotUpdateProcessor(
             userService,
             trackingService,
+            new FakeMiniAppChannelService(),
             localizationCatalog,
             new BotMenuFactory(localizationCatalog, miniAppOptions),
             new BotMessageCatalog(localizationCatalog));
@@ -274,6 +275,21 @@ public sealed class BotUpdateProcessorTests
 
         public Task<IReadOnlyList<SubscriptionDto>> ListSubscriptionsAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult(Subscriptions);
+    }
+
+    private sealed class FakeMiniAppChannelService : IMiniAppChannelService
+    {
+        public Task<IReadOnlyList<MiniAppChannelDto>> ListAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<MiniAppChannelDto>>([]);
+
+        public Task<ManagedChannelRegistrationResultDto> RegisterSharedChannelAsync(long telegramUserId, TelegramSharedChatDto sharedChat, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ManagedChannelRegistrationResultDto(true, "ok"));
+
+        public Task<bool> SetActiveAsync(long telegramUserId, Guid channelId, bool isActive, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<bool> DeleteAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
     }
 
     private sealed class FakeTrackedChannelRepository : Abstractions.Repositories.ITrackedChannelRepository

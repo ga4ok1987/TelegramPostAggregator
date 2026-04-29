@@ -9,6 +9,7 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<TrackedChannel> TrackedChannels => Set<TrackedChannel>();
     public DbSet<UserChannelSubscription> UserChannelSubscriptions => Set<UserChannelSubscription>();
+    public DbSet<ManagedChannel> ManagedChannels => Set<ManagedChannel>();
     public DbSet<CollectorAccount> CollectorAccounts => Set<CollectorAccount>();
     public DbSet<ChannelCollectorAssignment> ChannelCollectorAssignments => Set<ChannelCollectorAssignment>();
     public DbSet<TelegramPost> TelegramPosts => Set<TelegramPost>();
@@ -56,6 +57,16 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.HasOne(x => x.User).WithMany(x => x.ChannelSubscriptions).HasForeignKey(x => x.UserId);
             entity.HasOne(x => x.Channel).WithMany(x => x.UserSubscriptions).HasForeignKey(x => x.ChannelId);
             entity.HasIndex(x => new { x.IsActive, x.LastDeliveredTelegramMessageId });
+        });
+
+        modelBuilder.Entity<ManagedChannel>(entity =>
+        {
+            entity.ToTable("managed_channels");
+            entity.HasIndex(x => new { x.UserId, x.TelegramChatId }).IsUnique();
+            entity.Property(x => x.ChannelName).HasMaxLength(256);
+            entity.Property(x => x.Username).HasMaxLength(256);
+            entity.Property(x => x.LastWriteError).HasMaxLength(2048);
+            entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
         });
 
         modelBuilder.Entity<CollectorAccount>(entity =>

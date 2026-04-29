@@ -17,6 +17,7 @@ public sealed class BotMenuFactory(
         {
             new List<BotButtonDto> { new(locale.StartLabel), new(locale.StopLabel) },
             new List<BotButtonDto> { new(locale.ListLabel) },
+            new List<BotButtonDto> { new(localizationCatalog.ManagedChannelsButtonLabel, RequestChat: BuildManagedChannelsRequest()) },
             new List<BotButtonDto> { new(locale.DeleteAllLabel) }
         };
 
@@ -87,4 +88,21 @@ public sealed class BotMenuFactory(
         buttons.Add([new BotButtonDto(localizationCatalog.GetLocale(languageCode).CancelLabel, "action:cancel")]);
         return new BotReplyMarkupDto(buttons, IsInline: true);
     }
+
+    private static BotButtonRequestChatDto BuildManagedChannelsRequest() =>
+        new(
+            RequestId: 1001,
+            ChatIsChannel: true,
+            RequestTitle: true,
+            RequestUsername: true,
+            BotIsMember: true,
+            UserAdministratorRights: new BotChatAdministratorRightsDto(
+                CanManageChat: true,
+                CanInviteUsers: true,
+                CanPostMessages: true,
+                CanEditMessages: true),
+            BotAdministratorRights: new BotChatAdministratorRightsDto(
+                CanManageChat: true,
+                CanPostMessages: true,
+                CanEditMessages: true));
 }

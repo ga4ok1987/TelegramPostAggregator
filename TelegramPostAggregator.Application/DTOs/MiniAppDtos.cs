@@ -9,6 +9,10 @@ public sealed record MiniAppChannelDto(
     DateTimeOffset? LastPostCollectedAtUtc,
     string? LastCollectorError);
 
+public sealed record ManagedChannelRegistrationResultDto(
+    bool Success,
+    string Message);
+
 public sealed record MiniAppAuthResultDto(
     bool IsAuthenticated,
     long? TelegramUserId,

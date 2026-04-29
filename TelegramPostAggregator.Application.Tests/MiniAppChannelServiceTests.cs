@@ -3,7 +3,6 @@ using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Application.Services;
 using TelegramPostAggregator.Domain.Entities;
-using TelegramPostAggregator.Domain.Enums;
 using Xunit;
 
 namespace TelegramPostAggregator.Application.Tests;
@@ -13,14 +12,13 @@ public sealed class MiniAppChannelServiceTests
     [Fact]
     public async Task ListAsync_Returns_Only_Channels_Where_Bot_Is_Admin()
     {
-        var allowedChannelId = Guid.NewGuid();
-        var deniedChannelId = Guid.NewGuid();
         var service = new MiniAppChannelService(
-            new FakeSubscriptionRepository(
+            new FakeManagedChannelRepository(
             [
-                CreateSubscription(allowedChannelId, "Alpha", "-1001", "@alpha", true),
-                CreateSubscription(deniedChannelId, "Beta", "-1002", "@beta", true)
+                CreateManagedChannel("Alpha", -1001, "alpha", true),
+                CreateManagedChannel("Beta", -1002, "beta", true)
             ]),
+            new FakeAppUserRepository(CreateUser()),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
                 ["-1001"] = true,
@@ -30,69 +28,87 @@ public sealed class MiniAppChannelServiceTests
         var channels = await service.ListAsync(123456789);
 
         var channel = Assert.Single(channels);
-        Assert.Equal(allowedChannelId, channel.ChannelId);
         Assert.Equal("Alpha", channel.ChannelName);
     }
 
     [Fact]
-    public async Task ListAsync_Ignores_Reserved_Entries_Before_Admin_Check()
+    public async Task RegisterSharedChannelAsync_Saves_Channel_And_Probes_Posting()
     {
+        var repository = new FakeManagedChannelRepository([]);
         var service = new MiniAppChannelService(
-            new FakeSubscriptionRepository(
-            [
-                CreateSubscription(Guid.NewGuid(), "Language", "-1001", "Language", true),
-                CreateSubscription(Guid.NewGuid(), "Real Channel", "-1002", "@real", true)
-            ]),
+            repository,
+            new FakeAppUserRepository(CreateUser()),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
-                ["-1002"] = true
+                ["-100200"] = true
             }));
 
-        var channels = await service.ListAsync(123456789);
+        var result = await service.RegisterSharedChannelAsync(
+            123456789,
+            new TelegramSharedChatDto(1001, -100200, "My Private Channel", "private_channel"));
 
-        var channel = Assert.Single(channels);
-        Assert.Equal("Real Channel", channel.ChannelName);
+        Assert.True(result.Success);
+        var channel = Assert.Single(repository.Items);
+        Assert.Equal("My Private Channel", channel.ChannelName);
+        Assert.Equal(-100200, channel.TelegramChatId);
+        Assert.Equal("private_channel", channel.Username);
+        Assert.NotNull(channel.LastWriteSucceededAtUtc);
     }
 
-    private static UserChannelSubscription CreateSubscription(Guid channelId, string channelName, string telegramChannelId, string reference, bool isActive) =>
+    private static ManagedChannel CreateManagedChannel(string channelName, long telegramChatId, string? username, bool isActive) =>
+        CreateManagedChannel(CreateUser(), channelName, telegramChatId, username, isActive);
+
+    private static AppUser CreateUser() =>
         new()
         {
-            ChannelId = channelId,
-            IsActive = isActive,
-            Channel = new TrackedChannel
-            {
-                Id = channelId,
-                TelegramChannelId = telegramChannelId,
-                ChannelName = channelName,
-                UsernameOrInviteLink = reference,
-                Status = ChannelTrackingStatus.Active
-            },
-            User = new AppUser
-            {
-                Id = Guid.NewGuid(),
-                TelegramUserId = 123456789
-            }
+            Id = Guid.NewGuid(),
+            TelegramUserId = 123456789
         };
 
-    private sealed class FakeSubscriptionRepository(IReadOnlyList<UserChannelSubscription> subscriptions) : ISubscriptionRepository
-    {
-        public Task<UserChannelSubscription?> GetAsync(Guid userId, Guid channelId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<UserChannelSubscription?>(subscriptions.FirstOrDefault(x => x.User.Id == userId && x.ChannelId == channelId));
-
-        public Task<IReadOnlyList<UserChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<UserChannelSubscription>>(subscriptions.Where(x => x.User.TelegramUserId == telegramUserId).ToList());
-
-        public Task<IReadOnlyList<UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<UserChannelSubscription>>(subscriptions.Where(x => x.User.TelegramUserId == telegramUserId && x.IsActive).ToList());
-
-        public Task<IReadOnlyList<UserChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<UserChannelSubscription>>([]);
-
-        public Task AddAsync(UserChannelSubscription subscription, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public void Remove(UserChannelSubscription subscription)
+    private static ManagedChannel CreateManagedChannel(AppUser user, string channelName, long telegramChatId, string? username, bool isActive) =>
+        new()
         {
+            IsActive = isActive,
+            ChannelName = channelName,
+            TelegramChatId = telegramChatId,
+            Username = username,
+            User = user,
+            UserId = user.Id
+        };
+
+    private sealed class FakeManagedChannelRepository(IReadOnlyList<ManagedChannel> seed) : IManagedChannelRepository
+    {
+        public List<ManagedChannel> Items { get; } = seed.ToList();
+
+        public Task<ManagedChannel?> GetAsync(Guid userId, Guid managedChannelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.UserId == userId && x.Id == managedChannelId));
+
+        public Task<ManagedChannel?> GetByTelegramChatIdAsync(Guid userId, long telegramChatId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.UserId == userId && x.TelegramChatId == telegramChatId));
+
+        public Task<IReadOnlyList<ManagedChannel>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ManagedChannel>>(Items.Where(x => x.User.TelegramUserId == telegramUserId).ToList());
+
+        public Task AddAsync(ManagedChannel managedChannel, CancellationToken cancellationToken = default)
+        {
+            Items.Add(managedChannel);
+            return Task.CompletedTask;
         }
+
+        public void Remove(ManagedChannel managedChannel)
+        {
+            Items.Remove(managedChannel);
+        }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeAppUserRepository(AppUser user) : IAppUserRepository
+    {
+        public Task<AppUser?> GetByTelegramUserIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<AppUser?>(user.TelegramUserId == telegramUserId ? user : null);
+
+        public Task AddAsync(AppUser user, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

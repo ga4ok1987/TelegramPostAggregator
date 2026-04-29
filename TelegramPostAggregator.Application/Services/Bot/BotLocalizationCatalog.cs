@@ -526,6 +526,11 @@ public sealed class BotLocalizationCatalog
             return true;
         }
 
+        if (IsManagedChannelsRequestLabel(text))
+        {
+            return true;
+        }
+
         if (TryResolveMainMenuAction(text, out _) || TryResolveLanguageSelection(text, out _))
         {
             return true;
@@ -542,6 +547,11 @@ public sealed class BotLocalizationCatalog
     }
 
     public string MiniAppButtonLabel => "Mini App";
+
+    public string ManagedChannelsButtonLabel => "Add my channel";
+
+    public bool IsManagedChannelsRequestLabel(string? text) =>
+        string.Equals(text?.Trim(), ManagedChannelsButtonLabel, StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeUiText(string? value) =>
         (value ?? string.Empty)

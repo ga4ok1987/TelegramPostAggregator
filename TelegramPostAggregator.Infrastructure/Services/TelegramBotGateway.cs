@@ -338,22 +338,68 @@ public sealed class TelegramBotGateway(
         return new
         {
             keyboard = replyMarkup.Buttons.Select(row =>
-                row.Select(button => button.WebAppUrl is not null
-                    ? new Dictionary<string, object?>
-                    {
-                        ["text"] = button.Text,
-                        ["web_app"] = new Dictionary<string, object?>
-                        {
-                            ["url"] = button.WebAppUrl
-                        }
-                    }
-                    : new Dictionary<string, object?>
-                    {
-                        ["text"] = button.Text
-                    }).ToArray()).ToArray(),
+                row.Select(CreateReplyKeyboardButton).ToArray()).ToArray(),
             resize_keyboard = replyMarkup.ResizeKeyboard
         };
     }
+
+    private static Dictionary<string, object?> CreateReplyKeyboardButton(BotButtonDto button)
+    {
+        if (button.RequestChat is not null)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["text"] = button.Text,
+                ["request_chat"] = CreateRequestChat(button.RequestChat)
+            };
+        }
+
+        if (button.WebAppUrl is not null)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["text"] = button.Text,
+                ["web_app"] = new Dictionary<string, object?>
+                {
+                    ["url"] = button.WebAppUrl
+                }
+            };
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["text"] = button.Text
+        };
+    }
+
+    private static object CreateRequestChat(BotButtonRequestChatDto requestChat) => new
+    {
+        request_id = requestChat.RequestId,
+        chat_is_channel = requestChat.ChatIsChannel,
+        request_title = requestChat.RequestTitle,
+        request_username = requestChat.RequestUsername,
+        bot_is_member = requestChat.BotIsMember,
+        user_administrator_rights = requestChat.UserAdministratorRights is null ? null : CreateAdministratorRights(requestChat.UserAdministratorRights),
+        bot_administrator_rights = requestChat.BotAdministratorRights is null ? null : CreateAdministratorRights(requestChat.BotAdministratorRights)
+    };
+
+    private static object CreateAdministratorRights(BotChatAdministratorRightsDto rights) => new
+    {
+        can_manage_chat = rights.CanManageChat,
+        can_delete_messages = rights.CanDeleteMessages,
+        can_manage_video_chats = rights.CanManageVideoChats,
+        can_restrict_members = rights.CanRestrictMembers,
+        can_promote_members = rights.CanPromoteMembers,
+        can_change_info = rights.CanChangeInfo,
+        can_invite_users = rights.CanInviteUsers,
+        can_post_messages = rights.CanPostMessages,
+        can_edit_messages = rights.CanEditMessages,
+        can_pin_messages = rights.CanPinMessages,
+        can_post_stories = rights.CanPostStories,
+        can_edit_stories = rights.CanEditStories,
+        can_delete_stories = rights.CanDeleteStories,
+        can_manage_direct_messages = rights.CanManageDirectMessages
+    };
 
     private static TelegramBotUpdateDto? MapUpdate(TelegramGetUpdate update)
     {
@@ -379,7 +425,14 @@ public sealed class TelegramBotGateway(
             callbackQueryId,
             callbackData,
             chatId,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            update.Message?.ChatShared is null
+                ? null
+                : new TelegramSharedChatDto(
+                    update.Message.ChatShared.RequestId,
+                    update.Message.ChatShared.ChatId,
+                    update.Message.ChatShared.Title,
+                    update.Message.ChatShared.Username));
     }
 
     private static void DisposeStreams(IEnumerable<Stream> streams)
@@ -421,6 +474,9 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("from")]
         public TelegramGetUser? From { get; set; }
+
+        [JsonPropertyName("chat_shared")]
+        public TelegramSharedChatPayload? ChatShared { get; set; }
     }
 
     private sealed class TelegramCallbackQuery
@@ -460,5 +516,20 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("language_code")]
         public string? LanguageCode { get; set; }
+    }
+
+    private sealed class TelegramSharedChatPayload
+    {
+        [JsonPropertyName("request_id")]
+        public int RequestId { get; set; }
+
+        [JsonPropertyName("chat_id")]
+        public long ChatId { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("username")]
+        public string? Username { get; set; }
     }
 }

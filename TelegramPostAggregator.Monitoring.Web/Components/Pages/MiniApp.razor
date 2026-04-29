@@ -62,7 +62,7 @@
                             <div>
                                 <span class="miniapp-kicker">Client workspace</span>
                                 <h2>My Private Channels</h2>
-                                <p>Channels where your bot is already an administrator. Pause, resume, or remove them from monitoring.</p>
+                                <p>Channels that you explicitly shared with the bot and where it can already post messages.</p>
                             </div>
                             <div class="miniapp-user-chip">
                                 <strong>@ViewModel.DisplayName</strong>
@@ -85,7 +85,7 @@
                         {
                             <article class="miniapp-panel empty-state">
                                 <h3>No channels yet</h3>
-                                <p>Add the bot as an admin in your private channel, then add that channel in the bot chat and refresh this list.</p>
+                                <p>Add the bot as an admin in your private channel, then tap the channel picker in the bot chat and refresh this list.</p>
                                 <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">What to do</button>
                             </article>
                         }
@@ -115,7 +115,7 @@
                                                         @FormatReference(channel.ChannelReference)
                                                     }
                                                 </p>
-                                                <p class="channel-sync">Last sync: @FormatDate(channel.LastPostCollectedAtUtc)</p>
+                                                <p class="channel-sync">Last verified: @FormatDate(channel.LastPostCollectedAtUtc)</p>
                                             </div>
                                         </div>
 
@@ -228,7 +228,7 @@
         ViewModel.ShowPlaceholderAsync("Mini App navigation drawer is reserved for future sections.").AsTask();
 
     private Task ShowAddChannelHintAsync() =>
-        ViewModel.ShowPlaceholderAsync("Make the bot an admin in your private channel first, then add that channel in the bot chat. It will appear here after refresh.").AsTask();
+        ViewModel.ShowPlaceholderAsync("Make the bot an admin in your private channel first, then use the Add my channel button in the bot chat. It will appear here after refresh.").AsTask();
 
     private static string GetStatusLabel(MiniAppChannelDto channel) =>
         channel.IsActive ? "Active" : "Stopped";

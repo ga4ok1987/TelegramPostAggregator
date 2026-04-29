@@ -7,6 +7,7 @@ namespace TelegramPostAggregator.Application.Services;
 public sealed class BotUpdateProcessor(
     IUserService userService,
     IChannelTrackingService channelTrackingService,
+    IMiniAppChannelService miniAppChannelService,
     BotLocalizationCatalog localizationCatalog,
     BotMenuFactory menuFactory,
     BotMessageCatalog messages) : IBotUpdateProcessor
@@ -19,6 +20,19 @@ public sealed class BotUpdateProcessor(
         if (!string.IsNullOrWhiteSpace(update.CallbackData))
         {
             return await ProcessCallbackAsync(update, languageCode, cancellationToken);
+        }
+
+        if (update.SharedChat is not null)
+        {
+            var registration = await miniAppChannelService.RegisterSharedChannelAsync(
+                update.User.TelegramUserId,
+                update.SharedChat,
+                cancellationToken);
+
+            return new BotCommandResultDto(
+                registration.Success,
+                registration.Message,
+                menuFactory.BuildMainMenu(languageCode));
         }
 
         var text = update.Text?.Trim() ?? string.Empty;
@@ -78,6 +92,14 @@ public sealed class BotUpdateProcessor(
                 messages.BuildLanguageUpdatedMessage(selectedLanguageCode, updatedLanguageCode),
                 menuFactory.BuildMainMenu(updatedLanguageCode),
                 messages.StartCallbackNotice(updatedLanguageCode));
+        }
+
+        if (localizationCatalog.IsManagedChannelsRequestLabel(text))
+        {
+            return new BotCommandResultDto(
+                true,
+                messages.ManagedChannelsPrompt(),
+                menuFactory.BuildMainMenu(languageCode));
         }
 
         if (localizationCatalog.IsReservedUiText(text))
