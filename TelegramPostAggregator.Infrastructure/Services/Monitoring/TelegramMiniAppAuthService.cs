@@ -50,8 +50,10 @@ public sealed class TelegramMiniAppAuthService(
 
         var dataCheckString = BuildDataCheckString(parsedData);
         var computedHash = ComputeHash(botToken, dataCheckString);
+        var legacyComputedHash = ComputeLegacyCompatibleHash(botToken, dataCheckString);
 
-        if (!FixedTimeEquals(receivedHash, computedHash))
+        if (!FixedTimeEquals(receivedHash, computedHash) &&
+            !FixedTimeEquals(receivedHash, legacyComputedHash))
         {
             return Fail("Telegram authorization could not be verified.");
         }
@@ -140,6 +142,16 @@ public sealed class TelegramMiniAppAuthService(
         var secretKey = ComputeHmacSha256(
             Encoding.UTF8.GetBytes("WebAppData"),
             Encoding.UTF8.GetBytes(botToken));
+
+        var hashBytes = ComputeHmacSha256(secretKey, Encoding.UTF8.GetBytes(dataCheckString));
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static string ComputeLegacyCompatibleHash(string botToken, string dataCheckString)
+    {
+        var secretKey = ComputeHmacSha256(
+            Encoding.UTF8.GetBytes(botToken),
+            Encoding.UTF8.GetBytes("WebAppData"));
 
         var hashBytes = ComputeHmacSha256(secretKey, Encoding.UTF8.GetBytes(dataCheckString));
         return Convert.ToHexString(hashBytes).ToLowerInvariant();

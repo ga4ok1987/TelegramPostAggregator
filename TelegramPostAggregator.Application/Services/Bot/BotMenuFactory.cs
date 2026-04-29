@@ -20,11 +20,6 @@ public sealed class BotMenuFactory(
             new List<BotButtonDto> { new(locale.DeleteAllLabel) }
         };
 
-        if (!string.IsNullOrWhiteSpace(_miniAppUrl))
-        {
-            buttons.Add(new List<BotButtonDto> { new(localizationCatalog.MiniAppButtonLabel, WebAppUrl: _miniAppUrl) });
-        }
-
         buttons.Add(new List<BotButtonDto> { new(localizationCatalog.BuildLanguageButtonLabel(languageCode)) });
         return new BotReplyMarkupDto(buttons);
     }
