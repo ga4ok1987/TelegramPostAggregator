@@ -537,9 +537,13 @@ button {
 
 .channel-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.7fr) repeat(3, minmax(56px, 0.75fr));
     gap: 10px;
     margin-top: 18px;
+}
+
+.channel-actions.compact-actions {
+    grid-template-columns: repeat(3, minmax(56px, 1fr));
 }
 
 .channel-action,
@@ -581,6 +585,86 @@ button {
 .channel-action.delete {
     border-color: rgba(239, 95, 103, 0.36);
     color: #ff9ba1;
+}
+
+.channel-action.meta {
+    text-align: center;
+    padding: 0 12px;
+    border-color: rgba(164, 189, 255, 0.22);
+}
+
+.channel-action.icon {
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-icon {
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 8, 16, 0.68);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 20;
+    padding: 24px 12px max(24px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+}
+
+.subscription-modal {
+    width: min(100%, 560px);
+    max-height: min(82vh, 920px);
+    overflow: auto;
+    border-radius: 28px;
+    border: 1px solid rgba(164, 189, 255, 0.16);
+    background: rgba(9, 23, 43, 0.95);
+    box-shadow: 0 30px 90px rgba(1, 8, 20, 0.48);
+    padding: 20px;
+}
+
+.subscription-modal-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 48px;
+    gap: 16px;
+    align-items: start;
+    margin-bottom: 14px;
+}
+
+.subscription-modal-header h3,
+.subscription-modal-header p {
+    margin: 0;
+}
+
+.subscription-modal-header p {
+    color: var(--muted);
+    margin-top: 6px;
+}
+
+.modal-subscription-list {
+    padding-bottom: 4px;
+}
+
+.nested-card {
+    padding: 16px;
+}
+
+.compact.empty-state {
+    padding: 18px;
+}
+
+.close-glyph {
+    width: auto !important;
+    height: auto !important;
+    background: none !important;
+    font-size: 1.7rem;
+    line-height: 1;
 }
 
 .primary-action {
@@ -713,7 +797,7 @@ button {
     }
 
     .channel-actions {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(52px, 0.8fr));
     }
 
     .channel-name-row {
