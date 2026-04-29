@@ -4,13 +4,14 @@ public sealed record BotUserSnapshotDto(long TelegramUserId, string TelegramUser
 
 public sealed record TelegramBotUpdateDto(
     long UpdateId,
-    BotUserSnapshotDto User,
+    BotUserSnapshotDto? User,
     string? Text,
     string? CallbackQueryId,
     string? CallbackData,
     long? ChatId,
     DateTimeOffset ReceivedAtUtc,
-    TelegramSharedChatDto? SharedChat = null);
+    TelegramSharedChatDto? SharedChat = null,
+    bool IsChannelPost = false);
 
 public sealed record BotCommandResultDto(
     bool Success,

@@ -10,6 +10,8 @@ public sealed class ChannelTrackingService(
     IUserService userService,
     ITrackedChannelRepository trackedChannelRepository,
     ISubscriptionRepository subscriptionRepository,
+    IManagedChannelRepository managedChannelRepository,
+    IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
     ICollectorAccountRepository collectorAccountRepository,
     IPostRepository postRepository,
     IChannelKeyNormalizer channelKeyNormalizer,
@@ -21,34 +23,7 @@ public sealed class ChannelTrackingService(
             new BotUserSnapshotDto(request.TelegramUserId, request.TelegramUsername, request.DisplayName, "en"),
             cancellationToken);
 
-        var normalizedKey = channelKeyNormalizer.Normalize(request.ChannelReference);
-        var channel = await trackedChannelRepository.GetByNormalizedKeyAsync(normalizedKey, cancellationToken);
-        if (channel is null)
-        {
-            channel = new TrackedChannel
-            {
-                ChannelName = normalizedKey,
-                UsernameOrInviteLink = request.ChannelReference.Trim(),
-                NormalizedChannelKey = normalizedKey,
-                Status = ChannelTrackingStatus.PendingSubscription
-            };
-
-            await trackedChannelRepository.AddAsync(channel, cancellationToken);
-
-            var collector = await collectorAccountRepository.GetPrimaryAvailableAsync(cancellationToken);
-            if (collector is not null)
-            {
-                var assignment = new ChannelCollectorAssignment
-                {
-                    Channel = channel,
-                    CollectorAccountId = collector.Id,
-                    Status = ChannelTrackingStatus.PendingSubscription,
-                    IsPrimary = true
-                };
-
-                await collectorAccountRepository.AddAssignmentAsync(assignment, cancellationToken);
-            }
-        }
+        var channel = await EnsureTrackedChannelAsync(request.ChannelReference, cancellationToken);
 
         var subscription = await subscriptionRepository.GetAsync(user.Id, channel.Id, cancellationToken);
         if (subscription is null)
@@ -75,6 +50,47 @@ public sealed class ChannelTrackingService(
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
 
         return ToDto(channel);
+    }
+
+    public async Task<ManagedChannelTrackingResultDto> AddTrackedChannelToManagedChannelAsync(
+        AddManagedChannelTrackedChannelDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var managedChannel = await managedChannelRepository.GetByTelegramChatIdAsync(request.ManagedChannelChatId, cancellationToken);
+        if (managedChannel is null)
+        {
+            return new ManagedChannelTrackingResultDto(false, "Connect this destination channel first from the bot.");
+        }
+
+        var channel = await EnsureTrackedChannelAsync(request.ChannelReference, cancellationToken);
+        var subscription = await managedChannelSubscriptionRepository.GetAsync(managedChannel.Id, channel.Id, cancellationToken);
+        if (subscription is null)
+        {
+            var latestKnownMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(channel.Id, cancellationToken);
+            subscription = new ManagedChannelSubscription
+            {
+                ManagedChannelId = managedChannel.Id,
+                ChannelId = channel.Id,
+                IsActive = true,
+                LastDeliveredTelegramMessageId = latestKnownMessageId
+            };
+
+            await managedChannelSubscriptionRepository.AddAsync(subscription, cancellationToken);
+        }
+        else
+        {
+            subscription.IsActive = true;
+            subscription.LastDeliveredTelegramMessageId ??= await postRepository.GetLatestTelegramMessageIdForChannelAsync(channel.Id, cancellationToken);
+            subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        }
+
+        await trackedChannelRepository.SaveChangesAsync(cancellationToken);
+        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+
+        return new ManagedChannelTrackingResultDto(
+            true,
+            $"Monitoring enabled for {channel.UsernameOrInviteLink}. New posts will be delivered to this channel.",
+            ToDto(channel));
     }
 
     public async Task RemoveTrackedChannelAsync(RemoveTrackedChannelDto request, CancellationToken cancellationToken = default)
@@ -169,6 +185,42 @@ public sealed class ChannelTrackingService(
 
     private bool IsReservedUiChannel(string channelName, string channelReference) =>
         localizationCatalog.IsReservedUiText(channelName) || localizationCatalog.IsReservedUiText(channelReference);
+
+    private async Task<TrackedChannel> EnsureTrackedChannelAsync(string channelReference, CancellationToken cancellationToken)
+    {
+        var normalizedKey = channelKeyNormalizer.Normalize(channelReference);
+        var channel = await trackedChannelRepository.GetByNormalizedKeyAsync(normalizedKey, cancellationToken);
+        if (channel is not null)
+        {
+            return channel;
+        }
+
+        channel = new TrackedChannel
+        {
+            ChannelName = normalizedKey,
+            UsernameOrInviteLink = channelReference.Trim(),
+            NormalizedChannelKey = normalizedKey,
+            Status = ChannelTrackingStatus.PendingSubscription
+        };
+
+        await trackedChannelRepository.AddAsync(channel, cancellationToken);
+
+        var collector = await collectorAccountRepository.GetPrimaryAvailableAsync(cancellationToken);
+        if (collector is not null)
+        {
+            var assignment = new ChannelCollectorAssignment
+            {
+                Channel = channel,
+                CollectorAccountId = collector.Id,
+                Status = ChannelTrackingStatus.PendingSubscription,
+                IsPrimary = true
+            };
+
+            await collectorAccountRepository.AddAssignmentAsync(assignment, cancellationToken);
+        }
+
+        return channel;
+    }
 
     private static ChannelDto ToDto(TrackedChannel channel) =>
         new(channel.Id, channel.ChannelName, channel.UsernameOrInviteLink, channel.Status.ToString(), channel.LastPostCollectedAtUtc, channel.LastCollectorError);

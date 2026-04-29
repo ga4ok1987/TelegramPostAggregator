@@ -16,6 +16,7 @@ public sealed class TrackedChannel : BaseEntity
     public string? LastCollectorError { get; set; }
 
     public ICollection<UserChannelSubscription> UserSubscriptions { get; set; } = new List<UserChannelSubscription>();
+    public ICollection<ManagedChannelSubscription> ManagedChannelSubscriptions { get; set; } = new List<ManagedChannelSubscription>();
     public ICollection<ChannelCollectorAssignment> CollectorAssignments { get; set; } = new List<ChannelCollectorAssignment>();
     public ICollection<TelegramPost> Posts { get; set; } = new List<TelegramPost>();
 }

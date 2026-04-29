@@ -102,6 +102,8 @@ public sealed class BotUpdateProcessorTests
                     new SubscriptionDto(Guid.NewGuid(), "Real Channel", "https://t.me/real_channel", "Active", true),
                     new SubscriptionDto(Guid.NewGuid(), "🇬🇧 english", "🇬🇧 English", "Pending", true)
                 ]),
+            new FakeManagedChannelRepository([]),
+            new FakeManagedChannelSubscriptionRepository(),
             new FakeCollectorAccountRepository(),
             new FakePostRepository(),
             new FakeChannelKeyNormalizer(),
@@ -199,6 +201,29 @@ public sealed class BotUpdateProcessorTests
         Assert.Contains("2. ⏸ Paused Channel", result);
     }
 
+    [Fact]
+    public async Task ProcessAsync_ChannelPost_AddsManagedChannelTracking()
+    {
+        var trackingService = new FakeChannelTrackingService();
+        var processor = CreateProcessor(new FakeUserService("en"), trackingService);
+
+        var result = await processor.ProcessAsync(new TelegramBotUpdateDto(
+            1,
+            null,
+            "https://t.me/source_channel",
+            null,
+            null,
+            -1001234567890,
+            DateTimeOffset.UtcNow,
+            null,
+            true));
+
+        Assert.True(result.Success);
+        Assert.Equal(1, trackingService.AddManagedTrackedChannelCalls);
+        Assert.Equal(-1001234567890, trackingService.LastManagedChannelChatId);
+        Assert.Equal("https://t.me/source_channel", trackingService.LastManagedChannelReference);
+    }
+
     private static BotUpdateProcessor CreateProcessor(IUserService userService, IChannelTrackingService trackingService)
     {
         var localizationCatalog = new BotLocalizationCatalog();
@@ -240,6 +265,9 @@ public sealed class BotUpdateProcessorTests
     {
         public int SetSubscriptionsActiveResult { get; set; }
         public int AddTrackedChannelCalls { get; private set; }
+        public int AddManagedTrackedChannelCalls { get; private set; }
+        public long? LastManagedChannelChatId { get; private set; }
+        public string? LastManagedChannelReference { get; private set; }
 
         public IReadOnlyList<SubscriptionDto> Subscriptions { get; init; } = [];
 
@@ -256,6 +284,14 @@ public sealed class BotUpdateProcessorTests
         {
             AddTrackedChannelCalls++;
             return Guid.NewGuid();
+        }
+
+        public Task<ManagedChannelTrackingResultDto> AddTrackedChannelToManagedChannelAsync(AddManagedChannelTrackedChannelDto request, CancellationToken cancellationToken = default)
+        {
+            AddManagedTrackedChannelCalls++;
+            LastManagedChannelChatId = request.ManagedChannelChatId;
+            LastManagedChannelReference = request.ChannelReference;
+            return Task.FromResult(new ManagedChannelTrackingResultDto(true, "ok"));
         }
 
         public Task RemoveTrackedChannelAsync(RemoveTrackedChannelDto request, CancellationToken cancellationToken = default) =>
@@ -333,6 +369,47 @@ public sealed class BotUpdateProcessorTests
                     TelegramUserId = 123
                 }
             };
+    }
+
+    private sealed class FakeManagedChannelRepository(IReadOnlyList<Domain.Entities.ManagedChannel> seed) : Abstractions.Repositories.IManagedChannelRepository
+    {
+        private readonly List<Domain.Entities.ManagedChannel> _items = seed.ToList();
+
+        public Task<Domain.Entities.ManagedChannel?> GetAsync(Guid userId, Guid managedChannelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Domain.Entities.ManagedChannel?>(_items.FirstOrDefault(x => x.UserId == userId && x.Id == managedChannelId));
+
+        public Task<Domain.Entities.ManagedChannel?> GetByTelegramChatIdAsync(long telegramChatId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Domain.Entities.ManagedChannel?>(_items.FirstOrDefault(x => x.TelegramChatId == telegramChatId));
+
+        public Task<Domain.Entities.ManagedChannel?> GetByTelegramChatIdAsync(Guid userId, long telegramChatId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Domain.Entities.ManagedChannel?>(_items.FirstOrDefault(x => x.UserId == userId && x.TelegramChatId == telegramChatId));
+
+        public Task<IReadOnlyList<Domain.Entities.ManagedChannel>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannel>>(_items.Where(x => x.User.TelegramUserId == telegramUserId).ToList());
+
+        public Task AddAsync(Domain.Entities.ManagedChannel managedChannel, CancellationToken cancellationToken = default)
+        {
+            _items.Add(managedChannel);
+            return Task.CompletedTask;
+        }
+
+        public void Remove(Domain.Entities.ManagedChannel managedChannel) => _items.Remove(managedChannel);
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeManagedChannelSubscriptionRepository : Abstractions.Repositories.IManagedChannelSubscriptionRepository
+    {
+        public Task<Domain.Entities.ManagedChannelSubscription?> GetAsync(Guid managedChannelId, Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Domain.Entities.ManagedChannelSubscription?>(null);
+
+        public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
+
+        public Task AddAsync(Domain.Entities.ManagedChannelSubscription subscription, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FakeCollectorAccountRepository : Abstractions.Repositories.ICollectorAccountRepository

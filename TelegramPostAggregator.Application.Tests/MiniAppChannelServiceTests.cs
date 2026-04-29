@@ -86,6 +86,9 @@ public sealed class MiniAppChannelServiceTests
         public Task<ManagedChannel?> GetAsync(Guid userId, Guid managedChannelId, CancellationToken cancellationToken = default) =>
             Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.UserId == userId && x.Id == managedChannelId));
 
+        public Task<ManagedChannel?> GetByTelegramChatIdAsync(long telegramChatId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.TelegramChatId == telegramChatId));
+
         public Task<ManagedChannel?> GetByTelegramChatIdAsync(Guid userId, long telegramChatId, CancellationToken cancellationToken = default) =>
             Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.UserId == userId && x.TelegramChatId == telegramChatId));
 

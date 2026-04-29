@@ -12,6 +12,11 @@ public sealed class ManagedChannelRepository(AggregatorDbContext dbContext) : IM
             x => x.UserId == userId && x.Id == managedChannelId,
             cancellationToken);
 
+    public Task<ManagedChannel?> GetByTelegramChatIdAsync(long telegramChatId, CancellationToken cancellationToken = default) =>
+        dbContext.ManagedChannels
+            .Include(x => x.User)
+            .FirstOrDefaultAsync(x => x.TelegramChatId == telegramChatId, cancellationToken);
+
     public Task<ManagedChannel?> GetByTelegramChatIdAsync(Guid userId, long telegramChatId, CancellationToken cancellationToken = default) =>
         dbContext.ManagedChannels.FirstOrDefaultAsync(
             x => x.UserId == userId && x.TelegramChatId == telegramChatId,

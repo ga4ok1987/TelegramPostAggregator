@@ -405,6 +405,20 @@ public sealed class TelegramBotGateway(
 
     private static TelegramBotUpdateDto? MapUpdate(TelegramGetUpdate update, Microsoft.Extensions.Logging.ILogger logger)
     {
+        if (update.ChannelPost?.Chat is not null)
+        {
+            return new TelegramBotUpdateDto(
+                update.UpdateId,
+                null,
+                update.ChannelPost.Text,
+                null,
+                null,
+                update.ChannelPost.Chat.Id,
+                DateTimeOffset.UtcNow,
+                null,
+                true);
+        }
+
         var sourceUser = update.Message?.From ?? update.CallbackQuery?.From;
         var messageChat = update.Message?.Chat;
         if (sourceUser is null &&
@@ -468,7 +482,8 @@ public sealed class TelegramBotGateway(
                     update.Message.ChatShared.RequestId,
                     update.Message.ChatShared.ChatId,
                     update.Message.ChatShared.Title,
-                    update.Message.ChatShared.Username));
+                    update.Message.ChatShared.Username),
+            false);
     }
 
     private static void DisposeStreams(IEnumerable<Stream> streams)
@@ -495,6 +510,9 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("message")]
         public TelegramGetMessage? Message { get; set; }
+
+        [JsonPropertyName("channel_post")]
+        public TelegramGetMessage? ChannelPost { get; set; }
 
         [JsonPropertyName("callback_query")]
         public TelegramCallbackQuery? CallbackQuery { get; set; }

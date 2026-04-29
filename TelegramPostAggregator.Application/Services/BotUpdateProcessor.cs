@@ -1,6 +1,7 @@
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Application.Services.Bot;
+using System.Text.RegularExpressions;
 
 namespace TelegramPostAggregator.Application.Services;
 
@@ -12,9 +13,24 @@ public sealed class BotUpdateProcessor(
     BotMenuFactory menuFactory,
     BotMessageCatalog messages) : IBotUpdateProcessor
 {
+    private static readonly Regex ManagedChannelReferenceRegex = new(
+        @"^\s*(?:https?://)?t\.me/[A-Za-z0-9_+/-]+\s*$|^\s*@[A-Za-z0-9_]{4,}\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public async Task<BotCommandResultDto> ProcessAsync(TelegramBotUpdateDto update, CancellationToken cancellationToken = default)
     {
-        var user = await userService.UpsertTelegramUserAsync(update.User, cancellationToken);
+        if (update.IsChannelPost)
+        {
+            return await ProcessManagedChannelPostAsync(update, cancellationToken);
+        }
+
+        if (update.User is null)
+        {
+            return new BotCommandResultDto(false, string.Empty);
+        }
+
+        var sourceUser = update.User;
+        var user = await userService.UpsertTelegramUserAsync(sourceUser, cancellationToken);
         var languageCode = localizationCatalog.NormalizeLanguageCode(user.PreferredLanguageCode);
 
         if (!string.IsNullOrWhiteSpace(update.CallbackData))
@@ -25,7 +41,7 @@ public sealed class BotUpdateProcessor(
         if (update.SharedChat is not null)
         {
             var registration = await miniAppChannelService.RegisterSharedChannelAsync(
-                update.User.TelegramUserId,
+                sourceUser.TelegramUserId,
                 update.SharedChat,
                 cancellationToken);
 
@@ -44,7 +60,7 @@ public sealed class BotUpdateProcessor(
         if (text.StartsWith("/start", StringComparison.OrdinalIgnoreCase) ||
             (localizationCatalog.TryResolveMainMenuAction(text, out var menuAction) && menuAction == BotMainMenuAction.Start))
         {
-            var resumedCount = await channelTrackingService.SetSubscriptionsActiveAsync(update.User.TelegramUserId, true, cancellationToken);
+            var resumedCount = await channelTrackingService.SetSubscriptionsActiveAsync(sourceUser.TelegramUserId, true, cancellationToken);
             return new BotCommandResultDto(true, messages.BuildStartMessage(resumedCount, languageCode), menuFactory.BuildMainMenu(languageCode));
         }
 
@@ -61,7 +77,7 @@ public sealed class BotUpdateProcessor(
         if (text.StartsWith("/list", StringComparison.OrdinalIgnoreCase) ||
             (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.List))
         {
-            return await BuildSubscriptionsListResultAsync(update.User.TelegramUserId, languageCode, cancellationToken);
+            return await BuildSubscriptionsListResultAsync(sourceUser.TelegramUserId, languageCode, cancellationToken);
         }
 
         if (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.DeleteAll)
@@ -84,7 +100,7 @@ public sealed class BotUpdateProcessor(
 
         if (localizationCatalog.TryResolveLanguageSelection(text, out var selectedLanguageCode))
         {
-            var updatedUser = await userService.SetPreferredLanguageAsync(update.User.TelegramUserId, selectedLanguageCode, cancellationToken);
+            var updatedUser = await userService.SetPreferredLanguageAsync(sourceUser.TelegramUserId, selectedLanguageCode, cancellationToken);
             var updatedLanguageCode = localizationCatalog.NormalizeLanguageCode(updatedUser.PreferredLanguageCode);
 
             return new BotCommandResultDto(
@@ -119,31 +135,48 @@ public sealed class BotUpdateProcessor(
             }
 
             await channelTrackingService.RemoveTrackedChannelAsync(
-                new RemoveTrackedChannelDto(update.User.TelegramUserId, parts[1]),
+                new RemoveTrackedChannelDto(sourceUser.TelegramUserId, parts[1]),
                 cancellationToken);
 
             return new BotCommandResultDto(true, messages.BuildSubscriptionDisabledMessage(parts[1], languageCode), menuFactory.BuildMainMenu(languageCode));
         }
 
         await channelTrackingService.AddTrackedChannelAsync(
-            new AddTrackedChannelDto(update.User.TelegramUserId, update.User.TelegramUsername, update.User.DisplayName, text),
+            new AddTrackedChannelDto(sourceUser.TelegramUserId, sourceUser.TelegramUsername, sourceUser.DisplayName, text),
             cancellationToken);
 
         return new BotCommandResultDto(true, messages.BuildSubscriptionAddedMessage(text, languageCode), menuFactory.BuildMainMenu(languageCode));
     }
 
+    private async Task<BotCommandResultDto> ProcessManagedChannelPostAsync(TelegramBotUpdateDto update, CancellationToken cancellationToken)
+    {
+        var chatId = update.ChatId;
+        var text = update.Text?.Trim();
+        if (!chatId.HasValue || string.IsNullOrWhiteSpace(text) || !ManagedChannelReferenceRegex.IsMatch(text))
+        {
+            return new BotCommandResultDto(true, string.Empty);
+        }
+
+        var result = await channelTrackingService.AddTrackedChannelToManagedChannelAsync(
+            new AddManagedChannelTrackedChannelDto(chatId.Value, text),
+            cancellationToken);
+
+        return new BotCommandResultDto(result.Success, result.Message);
+    }
+
     private async Task<BotCommandResultDto> ProcessCallbackAsync(TelegramBotUpdateDto update, string languageCode, CancellationToken cancellationToken)
     {
+        var sourceUser = update.User!;
         var callbackData = update.CallbackData!;
 
         if (callbackData == "menu:list")
         {
-            return await BuildSubscriptionsListResultAsync(update.User.TelegramUserId, languageCode, cancellationToken);
+            return await BuildSubscriptionsListResultAsync(sourceUser.TelegramUserId, languageCode, cancellationToken);
         }
 
         if (callbackData == "menu:start")
         {
-            var resumedCount = await channelTrackingService.SetSubscriptionsActiveAsync(update.User.TelegramUserId, true, cancellationToken);
+            var resumedCount = await channelTrackingService.SetSubscriptionsActiveAsync(sourceUser.TelegramUserId, true, cancellationToken);
             return new BotCommandResultDto(
                 true,
                 messages.BuildStartCallbackMessage(resumedCount, languageCode),
@@ -181,7 +214,7 @@ public sealed class BotUpdateProcessor(
         if (callbackData.StartsWith("language:set:", StringComparison.Ordinal))
         {
             var selectedLanguageCode = localizationCatalog.NormalizeLanguageCode(callbackData["language:set:".Length..]);
-            var updatedUser = await userService.SetPreferredLanguageAsync(update.User.TelegramUserId, selectedLanguageCode, cancellationToken);
+            var updatedUser = await userService.SetPreferredLanguageAsync(sourceUser.TelegramUserId, selectedLanguageCode, cancellationToken);
             var updatedLanguageCode = localizationCatalog.NormalizeLanguageCode(updatedUser.PreferredLanguageCode);
 
             return new BotCommandResultDto(
@@ -193,7 +226,7 @@ public sealed class BotUpdateProcessor(
 
         if (callbackData == "pause_all:confirm")
         {
-            var pausedCount = await channelTrackingService.SetSubscriptionsActiveAsync(update.User.TelegramUserId, false, cancellationToken);
+            var pausedCount = await channelTrackingService.SetSubscriptionsActiveAsync(sourceUser.TelegramUserId, false, cancellationToken);
             return new BotCommandResultDto(
                 true,
                 messages.BuildPauseAppliedMessage(pausedCount, languageCode),
@@ -203,7 +236,7 @@ public sealed class BotUpdateProcessor(
 
         if (callbackData == "delete_all:confirm")
         {
-            var removedCount = await channelTrackingService.RemoveAllTrackedChannelsAsync(update.User.TelegramUserId, cancellationToken);
+            var removedCount = await channelTrackingService.RemoveAllTrackedChannelsAsync(sourceUser.TelegramUserId, cancellationToken);
             return new BotCommandResultDto(
                 true,
                 messages.BuildDeleteAllAppliedMessage(removedCount, languageCode),
@@ -224,7 +257,7 @@ public sealed class BotUpdateProcessor(
             }
 
             var removed = await channelTrackingService.RemoveTrackedChannelByIdAsync(
-                new RemoveTrackedChannelByIdDto(update.User.TelegramUserId, channelId),
+                new RemoveTrackedChannelByIdDto(sourceUser.TelegramUserId, channelId),
                 cancellationToken);
 
             return new BotCommandResultDto(
@@ -241,7 +274,7 @@ public sealed class BotUpdateProcessor(
                 return new BotCommandResultDto(false, messages.InvalidSubscriptionMessage(languageCode), menuFactory.BuildMainMenu(languageCode), messages.ErrorNotice(languageCode));
             }
 
-            var subscriptions = await channelTrackingService.ListSubscriptionsAsync(update.User.TelegramUserId, cancellationToken);
+            var subscriptions = await channelTrackingService.ListSubscriptionsAsync(sourceUser.TelegramUserId, cancellationToken);
             var subscription = subscriptions.FirstOrDefault(x => x.ChannelId == channelId);
             if (subscription is null)
             {

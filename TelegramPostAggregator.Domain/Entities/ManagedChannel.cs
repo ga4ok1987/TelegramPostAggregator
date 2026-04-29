@@ -14,4 +14,6 @@ public sealed class ManagedChannel : BaseEntity
     public DateTimeOffset? LastVerifiedAtUtc { get; set; }
     public DateTimeOffset? LastWriteSucceededAtUtc { get; set; }
     public string? LastWriteError { get; set; }
+
+    public ICollection<ManagedChannelSubscription> SourceSubscriptions { get; set; } = new List<ManagedChannelSubscription>();
 }

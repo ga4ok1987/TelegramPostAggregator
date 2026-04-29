@@ -76,6 +76,7 @@ public sealed class TelegramFeedDeliveryService(
     {
         using var scope = scopeFactory.CreateScope();
         var subscriptionRepository = scope.ServiceProvider.GetRequiredService<ISubscriptionRepository>();
+        var managedChannelSubscriptionRepository = scope.ServiceProvider.GetRequiredService<IManagedChannelSubscriptionRepository>();
         var postRepository = scope.ServiceProvider.GetRequiredService<IPostRepository>();
 
         var subscriptions = await subscriptionRepository.GetActiveForDeliveryAsync(_options.DeliveryBatchSize, cancellationToken);
@@ -190,7 +191,120 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
+        var managedSubscriptions = await managedChannelSubscriptionRepository.GetActiveForDeliveryAsync(_options.DeliveryBatchSize, cancellationToken);
+        foreach (var subscription in managedSubscriptions)
+        {
+            Domain.Entities.TelegramPost? currentPost = null;
+            try
+            {
+                using var subscriptionTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                subscriptionTimeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(5, _options.DeliverySubscriptionTimeLimitSeconds)));
+                var subscriptionToken = subscriptionTimeoutCts.Token;
+
+                if (subscription.LastDeliveredTelegramMessageId is null)
+                {
+                    var latestMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(subscription.ChannelId, subscriptionToken);
+                    if (latestMessageId.HasValue)
+                    {
+                        subscription.LastDeliveredTelegramMessageId = latestMessageId.Value;
+                        subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
+                        subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                    }
+
+                    continue;
+                }
+
+                var newPosts = await postRepository.GetUndeliveredForChannelAsync(
+                    subscription.ChannelId,
+                    subscription.LastDeliveredTelegramMessageId,
+                    Math.Max(_options.DeliveryPostsPerSubscription * 10, 100),
+                    subscriptionToken);
+
+                if (newPosts.Count == 0)
+                {
+                    subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
+                    subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                    continue;
+                }
+
+                var deliveredBatchCount = 0;
+                for (var index = 0; index < newPosts.Count; index++)
+                {
+                    subscriptionToken.ThrowIfCancellationRequested();
+
+                    var post = newPosts[index];
+                    currentPost = post;
+                    if (IsAlbumPostStillArriving(post))
+                    {
+                        break;
+                    }
+
+                    var groupedPosts = CollectMediaGroupPosts(newPosts, index);
+                    var deliveredPosts = groupedPosts.Count > 0 ? groupedPosts : [post];
+                    var contentSourcePost = await ResolveContentSourcePostAsync(postRepository, deliveredPosts, subscriptionToken);
+                    var checkpointPost = deliveredPosts[^1];
+                    var response = await SendPostsAsync(subscription.ManagedChannel.TelegramChatId, deliveredPosts, contentSourcePost, subscriptionToken);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        subscription.LastDeliveredTelegramMessageId = checkpointPost.TelegramMessageId;
+                        subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
+                        subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                        deliveredBatchCount += deliveredPosts.Count;
+                        index += deliveredPosts.Count - 1;
+
+                        if (deliveredBatchCount >= _options.DeliveryPostsPerSubscription)
+                        {
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    var shouldContinue = await HandleManagedChannelDeliveryFailureAsync(response, subscription, checkpointPost, subscriptionToken);
+                    if (!shouldContinue)
+                    {
+                        break;
+                    }
+
+                    deliveredBatchCount += deliveredPosts.Count;
+                    index += deliveredPosts.Count - 1;
+                    if (deliveredBatchCount >= _options.DeliveryPostsPerSubscription)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
+                subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+                logger.LogWarning(
+                    "Delivery time limit reached for managed channel subscription {SubscriptionId} and chat {ChatId}. Moving it to the back of the queue.",
+                    subscription.Id,
+                    subscription.ManagedChannel.TelegramChatId);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
+                subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+                logger.LogError(
+                    exception,
+                    "Failed to deliver posts for managed channel subscription {SubscriptionId} and chat {ChatId}. Moving it to the back of the queue.",
+                    subscription.Id,
+                    subscription.ManagedChannel.TelegramChatId);
+                await errorAlertService.SendAsync(
+                    "Failed to deliver posts to managed channel",
+                    BuildDeliveryAlertMessage(subscription, currentPost),
+                    exception,
+                    cancellationToken);
+            }
+        }
+
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
+        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<TelegramBotApiResultDto> SendPostsAsync(
@@ -625,6 +739,46 @@ public sealed class TelegramFeedDeliveryService(
         return false;
     }
 
+    private async Task<bool> HandleManagedChannelDeliveryFailureAsync(
+        TelegramBotApiResultDto response,
+        Domain.Entities.ManagedChannelSubscription subscription,
+        Domain.Entities.TelegramPost post,
+        CancellationToken cancellationToken)
+    {
+        var responseBody = response.ResponseBody ?? string.Empty;
+        var now = DateTimeOffset.UtcNow;
+
+        if (IsUnrecoverableClientError(response.StatusCode, responseBody))
+        {
+            subscription.LastDeliveredTelegramMessageId = post.TelegramMessageId;
+            subscription.LastDeliveredAtUtc = now;
+            subscription.UpdatedAtUtc = now;
+
+            logger.LogWarning(
+                "Skipping undeliverable post {PostId} for managed channel subscription {SubscriptionId} and chat {ChatId} after Telegram returned {StatusCode}. Response: {ResponseBody}",
+                post.Id,
+                subscription.Id,
+                subscription.ManagedChannel.TelegramChatId,
+                (int)response.StatusCode,
+                responseBody);
+            return true;
+        }
+
+        logger.LogError(
+            "Telegram returned {StatusCode} for managed channel subscription {SubscriptionId}, chat {ChatId}, post {PostId}. Response: {ResponseBody}",
+            (int)response.StatusCode,
+            subscription.Id,
+            subscription.ManagedChannel.TelegramChatId,
+            post.Id,
+            responseBody);
+
+        await errorAlertService.SendAsync(
+            "Telegram delivery failed",
+            BuildDeliveryAlertMessage(subscription, post, (int)response.StatusCode, responseBody),
+            cancellationToken: cancellationToken);
+        return false;
+    }
+
     private async Task<string?> TryDownloadStoredMediaAsync(
         Domain.Entities.TelegramPost post,
         PostMediaMetadata metadata,
@@ -651,6 +805,43 @@ public sealed class TelegramFeedDeliveryService(
         {
             $"SubscriptionId: {subscription.Id}",
             $"ChatId: {subscription.User.TelegramUserId}"
+        };
+
+        if (post is not null)
+        {
+            lines.Add($"PostId: {post.Id}");
+            lines.Add($"TelegramMessageId: {post.TelegramMessageId}");
+
+            if (!string.IsNullOrWhiteSpace(post.OriginalPostUrl))
+            {
+                lines.Add($"OriginalPostUrl: {post.OriginalPostUrl}");
+            }
+        }
+
+        if (statusCode.HasValue)
+        {
+            lines.Add($"StatusCode: {statusCode.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(responseBody))
+        {
+            lines.Add($"Response: {responseBody}");
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private static string BuildDeliveryAlertMessage(
+        Domain.Entities.ManagedChannelSubscription subscription,
+        Domain.Entities.TelegramPost? post,
+        int? statusCode = null,
+        string? responseBody = null)
+    {
+        var lines = new List<string>
+        {
+            $"ManagedChannelSubscriptionId: {subscription.Id}",
+            $"ManagedChannelId: {subscription.ManagedChannelId}",
+            $"ChatId: {subscription.ManagedChannel.TelegramChatId}"
         };
 
         if (post is not null)

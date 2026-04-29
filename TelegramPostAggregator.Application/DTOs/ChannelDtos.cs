@@ -2,6 +2,8 @@ namespace TelegramPostAggregator.Application.DTOs;
 
 public sealed record AddTrackedChannelDto(long TelegramUserId, string TelegramUsername, string DisplayName, string ChannelReference);
 
+public sealed record AddManagedChannelTrackedChannelDto(long ManagedChannelChatId, string ChannelReference);
+
 public sealed record RemoveTrackedChannelDto(long TelegramUserId, string ChannelReference);
 
 public sealed record RemoveTrackedChannelByIdDto(long TelegramUserId, Guid ChannelId);
@@ -20,3 +22,8 @@ public sealed record SubscriptionDto(
     string ChannelReference,
     string Status,
     bool IsActive);
+
+public sealed record ManagedChannelTrackingResultDto(
+    bool Success,
+    string Message,
+    ChannelDto? Channel = null);

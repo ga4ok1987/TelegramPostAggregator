@@ -5,6 +5,7 @@ namespace TelegramPostAggregator.Application.Abstractions.Services;
 public interface IChannelTrackingService
 {
     Task<ChannelDto> AddTrackedChannelAsync(AddTrackedChannelDto request, CancellationToken cancellationToken = default);
+    Task<ManagedChannelTrackingResultDto> AddTrackedChannelToManagedChannelAsync(AddManagedChannelTrackedChannelDto request, CancellationToken cancellationToken = default);
     Task RemoveTrackedChannelAsync(RemoveTrackedChannelDto request, CancellationToken cancellationToken = default);
     Task<bool> RemoveTrackedChannelByIdAsync(RemoveTrackedChannelByIdDto request, CancellationToken cancellationToken = default);
     Task<int> RemoveAllTrackedChannelsAsync(long telegramUserId, CancellationToken cancellationToken = default);

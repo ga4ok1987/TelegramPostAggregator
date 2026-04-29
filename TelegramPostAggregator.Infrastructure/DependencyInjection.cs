@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<ITrackedChannelRepository, TrackedChannelRepository>();
         services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddScoped<IManagedChannelRepository, ManagedChannelRepository>();
+        services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
         services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
         services.AddScoped<IPostRepository, PostRepository>();
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
@@ -84,6 +85,7 @@ public static class DependencyInjection
         services.AddScoped<ITrackedChannelRepository, TrackedChannelRepository>();
         services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
         services.AddScoped<IManagedChannelRepository, ManagedChannelRepository>();
+        services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
         services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
         services.AddScoped<IPostRepository, PostRepository>();
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
