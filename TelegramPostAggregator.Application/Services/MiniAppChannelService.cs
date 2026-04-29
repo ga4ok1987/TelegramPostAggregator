@@ -5,7 +5,8 @@ using TelegramPostAggregator.Application.DTOs;
 namespace TelegramPostAggregator.Application.Services;
 
 public sealed class MiniAppChannelService(
-    ISubscriptionRepository subscriptionRepository) : IMiniAppChannelService
+    ISubscriptionRepository subscriptionRepository,
+    Abstractions.External.ITelegramBotGateway telegramBotGateway) : IMiniAppChannelService
 {
     private static readonly HashSet<string> ReservedUiTexts = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -18,9 +19,25 @@ public sealed class MiniAppChannelService(
     public async Task<IReadOnlyList<MiniAppChannelDto>> ListAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
         var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
-
-        return subscriptions
+        var candidates = subscriptions
             .Where(subscription => !IsReservedUiChannel(subscription.Channel.ChannelName, subscription.Channel.UsernameOrInviteLink))
+            .Where(subscription => !string.IsNullOrWhiteSpace(subscription.Channel.TelegramChannelId))
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var adminChecks = await Task.WhenAll(candidates.Select(async subscription => new
+        {
+            Subscription = subscription,
+            IsBotAdministrator = await telegramBotGateway.IsBotAdministratorAsync(subscription.Channel.TelegramChannelId, cancellationToken)
+        }));
+
+        return adminChecks
+            .Where(result => result.IsBotAdministrator)
+            .Select(result => result.Subscription)
             .OrderByDescending(subscription => subscription.IsActive)
             .ThenBy(subscription => subscription.Channel.ChannelName)
             .Select(subscription => new MiniAppChannelDto(
