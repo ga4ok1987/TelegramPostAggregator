@@ -7,15 +7,18 @@ using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Infrastructure.Options;
 using Microsoft.Extensions.Options;
+using TelegramPostAggregator.Application.Options;
 
 namespace TelegramPostAggregator.Infrastructure.Services;
 
 public sealed class TelegramBotGateway(
     IHttpClientFactory httpClientFactory,
-    IOptions<TelegramBotOptions> options) : ITelegramBotGateway
+    IOptions<TelegramBotOptions> options,
+    IOptions<MiniAppOptions> miniAppOptions) : ITelegramBotGateway
 {
     private const string DefaultBotApiBaseUrl = "https://api.telegram.org";
     private readonly TelegramBotOptions _options = options.Value;
+    private readonly MiniAppOptions _miniAppOptions = miniAppOptions.Value;
     private long? _botUserId;
 
     public async Task<IReadOnlyList<TelegramBotUpdateDto>> GetUpdatesAsync(long offset, CancellationToken cancellationToken = default)
@@ -191,6 +194,27 @@ public sealed class TelegramBotGateway(
         var status = statusElement.GetString();
         return string.Equals(status, "administrator", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(status, "creator", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(webAppUrl))
+        {
+            return Task.FromResult(new TelegramBotApiResultDto(true, HttpStatusCode.OK, null));
+        }
+
+        return PostJsonAsync("setChatMenuButton", new
+        {
+            menu_button = new
+            {
+                type = "web_app",
+                text,
+                web_app = new
+                {
+                    url = webAppUrl
+                }
+            }
+        }, cancellationToken);
     }
 
     private async Task<TelegramBotApiResultDto> SendMediaAsync(

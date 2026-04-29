@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
+using TelegramPostAggregator.Application.Services.Bot;
 using TelegramPostAggregator.Infrastructure.Options;
 
 namespace TelegramPostAggregator.Infrastructure.Services;
@@ -14,9 +15,13 @@ public sealed class TelegramBotPollingService(
     IErrorAlertService errorAlertService,
     IServiceScopeFactory scopeFactory,
     IOptions<TelegramBotOptions> options,
+    IOptions<Application.Options.MiniAppOptions> miniAppOptions,
+    BotLocalizationCatalog localizationCatalog,
     ILogger<TelegramBotPollingService> logger) : BackgroundService
 {
     private readonly TelegramBotOptions _options = options.Value;
+    private readonly Application.Options.MiniAppOptions _miniAppOptions = miniAppOptions.Value;
+    private readonly BotLocalizationCatalog _localizationCatalog = localizationCatalog;
     private long _offset;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -26,6 +31,8 @@ public sealed class TelegramBotPollingService(
             logger.LogWarning("Telegram bot polling is disabled because BotToken is not configured.");
             return;
         }
+
+        await EnsureMiniAppMenuButtonAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -53,6 +60,21 @@ public sealed class TelegramBotPollingService(
                 await Task.Delay(_options.PollingDelayMilliseconds, stoppingToken);
             }
         }
+    }
+
+    private async Task EnsureMiniAppMenuButtonAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_miniAppOptions.Url))
+        {
+            return;
+        }
+
+        var response = await telegramBotGateway.SetChatMenuButtonAsync(
+            _localizationCatalog.MiniAppButtonLabel,
+            _miniAppOptions.Url,
+            cancellationToken);
+
+        EnsureSuccess(response, "setChatMenuButton");
     }
 
     private async Task ProcessUpdateAsync(TelegramBotUpdateDto update, CancellationToken cancellationToken)

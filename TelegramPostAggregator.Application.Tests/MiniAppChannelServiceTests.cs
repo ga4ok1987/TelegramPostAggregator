@@ -134,5 +134,8 @@ public sealed class MiniAppChannelServiceTests
 
         public Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default) =>
             Task.FromResult(adminChannels.TryGetValue(telegramChannelId, out var isAdmin) && isAdmin);
+
+        public Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
     }
 }
