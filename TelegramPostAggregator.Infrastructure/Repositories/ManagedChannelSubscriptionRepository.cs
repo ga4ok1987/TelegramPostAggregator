@@ -38,6 +38,9 @@ public sealed class ManagedChannelSubscriptionRepository(AggregatorDbContext dbC
     public Task AddAsync(ManagedChannelSubscription subscription, CancellationToken cancellationToken = default) =>
         dbContext.ManagedChannelSubscriptions.AddAsync(subscription, cancellationToken).AsTask();
 
+    public void Remove(ManagedChannelSubscription subscription) =>
+        dbContext.ManagedChannelSubscriptions.Remove(subscription);
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         dbContext.SaveChangesAsync(cancellationToken);
 }

@@ -23,6 +23,14 @@ public sealed class MiniAppChannelService(
             return [];
         }
 
+        var subscriptionsByManagedChannelId = (await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken))
+            .GroupBy(x => x.ManagedChannelId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<ManagedChannelSubscription>)group
+                    .OrderBy(x => x.Channel.ChannelName)
+                    .ToList());
+
         var adminChecks = await Task.WhenAll(channels.Select(async channel => new
         {
             Channel = channel,
@@ -41,7 +49,8 @@ public sealed class MiniAppChannelService(
                 channel.IsActive ? "Connected" : "Paused",
                 channel.IsActive,
                 channel.LastWriteSucceededAtUtc ?? channel.LastVerifiedAtUtc,
-                channel.LastWriteError))
+                channel.LastWriteError,
+                BuildSubscriptionDtos(subscriptionsByManagedChannelId, channel.Id)))
             .ToList();
     }
 
@@ -190,6 +199,59 @@ public sealed class MiniAppChannelService(
         return true;
     }
 
+    public async Task<bool> SetSubscriptionActiveAsync(long telegramUserId, Guid managedChannelId, Guid subscriptionId, bool isActive, CancellationToken cancellationToken = default)
+    {
+        var channels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var managedChannel = channels.FirstOrDefault(channel => channel.Id == managedChannelId);
+        if (managedChannel is null)
+        {
+            return false;
+        }
+
+        var subscriptions = await managedChannelSubscriptionRepository.GetByManagedChannelIdAsync(managedChannelId, cancellationToken);
+        var target = subscriptions.FirstOrDefault(x => x.Id == subscriptionId);
+        if (target is null)
+        {
+            return false;
+        }
+
+        if (target.IsActive == isActive)
+        {
+            return true;
+        }
+
+        target.IsActive = isActive;
+        if (isActive)
+        {
+            target.LastDeliveredTelegramMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(target.ChannelId, cancellationToken);
+        }
+
+        target.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> DeleteSubscriptionAsync(long telegramUserId, Guid managedChannelId, Guid subscriptionId, CancellationToken cancellationToken = default)
+    {
+        var channels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var managedChannel = channels.FirstOrDefault(channel => channel.Id == managedChannelId);
+        if (managedChannel is null)
+        {
+            return false;
+        }
+
+        var subscriptions = await managedChannelSubscriptionRepository.GetByManagedChannelIdAsync(managedChannelId, cancellationToken);
+        var target = subscriptions.FirstOrDefault(x => x.Id == subscriptionId);
+        if (target is null)
+        {
+            return false;
+        }
+
+        managedChannelSubscriptionRepository.Remove(target);
+        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     private static string BuildChannelReference(ManagedChannel channel) =>
         !string.IsNullOrWhiteSpace(channel.Username)
             ? $"@{channel.Username.TrimStart('@')}"
@@ -202,4 +264,25 @@ public sealed class MiniAppChannelService(
 
     private static string? NormalizeUsername(string? username) =>
         string.IsNullOrWhiteSpace(username) ? null : username.Trim().TrimStart('@');
+
+    private static IReadOnlyList<MiniAppSourceSubscriptionDto> BuildSubscriptionDtos(
+        IReadOnlyDictionary<Guid, IReadOnlyList<ManagedChannelSubscription>> subscriptionsByManagedChannelId,
+        Guid managedChannelId)
+    {
+        if (!subscriptionsByManagedChannelId.TryGetValue(managedChannelId, out var subscriptions))
+        {
+            return [];
+        }
+
+        return subscriptions.Select(subscription => new MiniAppSourceSubscriptionDto(
+            subscription.Id,
+            subscription.ChannelId,
+            subscription.Channel.ChannelName,
+            subscription.Channel.UsernameOrInviteLink,
+            subscription.IsActive ? "Active" : "Paused",
+            subscription.IsActive,
+            subscription.LastDeliveredAtUtc,
+            subscription.Channel.LastCollectorError))
+            .ToList();
+    }
 }

@@ -326,6 +326,12 @@ public sealed class BotUpdateProcessorTests
 
         public Task<bool> DeleteAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
+
+        public Task<bool> SetSubscriptionActiveAsync(long telegramUserId, Guid managedChannelId, Guid subscriptionId, bool isActive, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<bool> DeleteSubscriptionAsync(long telegramUserId, Guid managedChannelId, Guid subscriptionId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
     }
 
     private sealed class FakeTrackedChannelRepository : Abstractions.Repositories.ITrackedChannelRepository
@@ -414,6 +420,8 @@ public sealed class BotUpdateProcessorTests
 
         public Task AddAsync(Domain.Entities.ManagedChannelSubscription subscription, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+
+        public void Remove(Domain.Entities.ManagedChannelSubscription subscription) { }
 
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

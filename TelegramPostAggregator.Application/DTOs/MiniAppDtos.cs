@@ -7,6 +7,17 @@ public sealed record MiniAppChannelDto(
     string Status,
     bool IsActive,
     DateTimeOffset? LastPostCollectedAtUtc,
+    string? LastCollectorError,
+    IReadOnlyList<MiniAppSourceSubscriptionDto> Subscriptions);
+
+public sealed record MiniAppSourceSubscriptionDto(
+    Guid SubscriptionId,
+    Guid SourceChannelId,
+    string ChannelName,
+    string ChannelReference,
+    string Status,
+    bool IsActive,
+    DateTimeOffset? LastDeliveredAtUtc,
     string? LastCollectorError);
 
 public sealed record ManagedChannelRegistrationResultDto(

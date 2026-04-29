@@ -33,6 +33,7 @@ public sealed class MiniAppChannelServiceTests
 
         var channel = Assert.Single(channels);
         Assert.Equal("Alpha", channel.ChannelName);
+        Assert.Empty(channel.Subscriptions);
     }
 
     [Fact]
@@ -60,6 +61,50 @@ public sealed class MiniAppChannelServiceTests
         Assert.Equal(-100200, channel.TelegramChatId);
         Assert.Equal("private_channel", channel.Username);
         Assert.NotNull(channel.LastWriteSucceededAtUtc);
+    }
+
+    [Fact]
+    public async Task ListAsync_Includes_Source_Subscriptions_For_Channel()
+    {
+        var user = CreateUser();
+        var managedChannel = CreateManagedChannel(user, "Alpha", -1001, "alpha", true);
+        var sourceChannelId = Guid.NewGuid();
+
+        var service = new MiniAppChannelService(
+            new FakeManagedChannelRepository([managedChannel]),
+            new FakeManagedChannelSubscriptionRepository(
+            [
+                new ManagedChannelSubscription
+                {
+                    Id = Guid.NewGuid(),
+                    ManagedChannelId = managedChannel.Id,
+                    ManagedChannel = managedChannel,
+                    ChannelId = sourceChannelId,
+                    Channel = new TrackedChannel
+                    {
+                        Id = sourceChannelId,
+                        ChannelName = "Source One",
+                        UsernameOrInviteLink = "https://t.me/source_one",
+                        LastCollectorError = null
+                    },
+                    IsActive = true
+                }
+            ]),
+            new FakeAppUserRepository(user),
+            new FakePostRepository(),
+            new FakeTelegramBotGateway(new Dictionary<string, bool>
+            {
+                ["-1001"] = true
+            }),
+            NullLogger<MiniAppChannelService>.Instance);
+
+        var channels = await service.ListAsync(user.TelegramUserId);
+
+        var channel = Assert.Single(channels);
+        var subscription = Assert.Single(channel.Subscriptions);
+        Assert.Equal("Source One", subscription.ChannelName);
+        Assert.Equal("https://t.me/source_one", subscription.ChannelReference);
+        Assert.True(subscription.IsActive);
     }
 
     private static ManagedChannel CreateManagedChannel(string channelName, long telegramChatId, string? username, bool isActive) =>
@@ -133,6 +178,11 @@ public sealed class MiniAppChannelServiceTests
         {
             Items.Add(subscription);
             return Task.CompletedTask;
+        }
+
+        public void Remove(ManagedChannelSubscription subscription)
+        {
+            Items.Remove(subscription);
         }
 
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

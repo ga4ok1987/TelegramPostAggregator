@@ -9,5 +9,6 @@ public interface IManagedChannelSubscriptionRepository
     Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default);
     Task AddAsync(ManagedChannelSubscription subscription, CancellationToken cancellationToken = default);
+    void Remove(ManagedChannelSubscription subscription);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -129,6 +129,64 @@
                                             <button class="channel-action stop" type="button" @onclick="() => StopAsync(channel.ChannelId)" disabled="@(!channel.IsActive || isBusy)">@(isBusy && channel.IsActive ? "Working..." : "Stop")</button>
                                             <button class="channel-action delete" type="button" @onclick="() => DeleteAsync(channel.ChannelId)" disabled="@isBusy">@(isBusy ? "Working..." : "Delete")</button>
                                         </div>
+
+                                        <div class="miniapp-panel source-subscriptions">
+                                            <div class="channel-name-row">
+                                                <h4>Source subscriptions</h4>
+                                                <span class="status-pill @(channel.Subscriptions.Count == 0 ? "paused" : "active")">
+                                                    @channel.Subscriptions.Count
+                                                </span>
+                                            </div>
+
+                                            @if (channel.Subscriptions.Count == 0)
+                                            {
+                                                <p class="channel-sync">No source channels added yet. Send a Telegram channel link into this connected channel to create one.</p>
+                                            }
+                                            else
+                                            {
+                                                <div class="channel-list">
+                                                    @foreach (var subscription in channel.Subscriptions)
+                                                    {
+                                                        var subscriptionBusy = ViewModel.IsSubscriptionBusy(subscription.SubscriptionId);
+                                                        <article class="channel-card nested-card">
+                                                            <div class="channel-card-header">
+                                                                <div class="channel-avatar">@BuildAvatar(subscription.ChannelName)</div>
+                                                                <div class="channel-meta">
+                                                                    <div class="channel-name-row">
+                                                                        <h4>@subscription.ChannelName</h4>
+                                                                        <span class="status-pill @GetSubscriptionStatusCssClass(subscription)">
+                                                                            @GetSubscriptionStatusLabel(subscription)
+                                                                        </span>
+                                                                    </div>
+                                                                    <p class="channel-reference">
+                                                                        @if (TryBuildReferenceHref(subscription.ChannelReference, out var subscriptionReferenceHref))
+                                                                        {
+                                                                            <a href="@subscriptionReferenceHref" target="_blank" rel="noreferrer noopener">@FormatReference(subscription.ChannelReference)</a>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            @FormatReference(subscription.ChannelReference)
+                                                                        }
+                                                                    </p>
+                                                                    <p class="channel-sync">Last delivery: @FormatDate(subscription.LastDeliveredAtUtc)</p>
+                                                                </div>
+                                                            </div>
+
+                                                            @if (!string.IsNullOrWhiteSpace(subscription.LastCollectorError))
+                                                            {
+                                                                <div class="channel-warning">@subscription.LastCollectorError</div>
+                                                            }
+
+                                                            <div class="channel-actions">
+                                                                <button class="channel-action start" type="button" @onclick="() => StartSubscriptionAsync(channel.ChannelId, subscription.SubscriptionId)" disabled="@(subscription.IsActive || subscriptionBusy || !channel.IsActive)">@(subscriptionBusy && !subscription.IsActive ? "Working..." : "Start")</button>
+                                                                <button class="channel-action stop" type="button" @onclick="() => StopSubscriptionAsync(channel.ChannelId, subscription.SubscriptionId)" disabled="@(!subscription.IsActive || subscriptionBusy)">@(subscriptionBusy && subscription.IsActive ? "Working..." : "Stop")</button>
+                                                                <button class="channel-action delete" type="button" @onclick="() => DeleteSubscriptionAsync(channel.ChannelId, subscription.SubscriptionId)" disabled="@subscriptionBusy">@(subscriptionBusy ? "Working..." : "Delete")</button>
+                                                            </div>
+                                                        </article>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
                                     </article>
                                 }
                             </div>
@@ -224,6 +282,12 @@
 
     private async Task DeleteAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.DeleteChannelAsync(channelId));
 
+    private async Task StartSubscriptionAsync(Guid channelId, Guid subscriptionId) => await ExecuteAsync(() => ViewModel.StartSubscriptionAsync(channelId, subscriptionId));
+
+    private async Task StopSubscriptionAsync(Guid channelId, Guid subscriptionId) => await ExecuteAsync(() => ViewModel.StopSubscriptionAsync(channelId, subscriptionId));
+
+    private async Task DeleteSubscriptionAsync(Guid channelId, Guid subscriptionId) => await ExecuteAsync(() => ViewModel.DeleteSubscriptionAsync(channelId, subscriptionId));
+
     private Task OpenDrawerAsync() =>
         ViewModel.ShowPlaceholderAsync("Mini App navigation drawer is reserved for future sections.").AsTask();
 
@@ -235,6 +299,12 @@
 
     private static string GetStatusCssClass(MiniAppChannelDto channel) =>
         channel.IsActive ? "active" : "paused";
+
+    private static string GetSubscriptionStatusLabel(MiniAppSourceSubscriptionDto subscription) =>
+        subscription.IsActive ? "Active" : "Stopped";
+
+    private static string GetSubscriptionStatusCssClass(MiniAppSourceSubscriptionDto subscription) =>
+        subscription.IsActive ? "active" : "paused";
 
     private Task ShowSettingsHintAsync() =>
         ViewModel.ShowPlaceholderAsync("Settings will be connected in the next iteration.").AsTask();

@@ -20,6 +20,7 @@ public sealed class MiniAppViewModel(
     public string? StatusMessage { get; private set; }
     public IReadOnlyList<MiniAppChannelDto> Channels { get; private set; } = [];
     private HashSet<Guid> PendingChannelIds { get; } = [];
+    private HashSet<Guid> PendingSubscriptionIds { get; } = [];
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -136,6 +137,8 @@ public sealed class MiniAppViewModel(
 
     public bool IsChannelBusy(Guid channelId) => PendingChannelIds.Contains(channelId);
 
+    public bool IsSubscriptionBusy(Guid subscriptionId) => PendingSubscriptionIds.Contains(subscriptionId);
+
     private async Task<bool> UpdateChannelAsync(Guid channelId, bool isActive, string successMessage, CancellationToken cancellationToken)
     {
         if (TelegramUserId is null or 0)
@@ -168,6 +171,82 @@ public sealed class MiniAppViewModel(
         finally
         {
             PendingChannelIds.Remove(channelId);
+        }
+    }
+
+    public async Task<bool> StartSubscriptionAsync(Guid managedChannelId, Guid subscriptionId, CancellationToken cancellationToken = default) =>
+        await UpdateSubscriptionAsync(managedChannelId, subscriptionId, true, "Subscription started.", cancellationToken);
+
+    public async Task<bool> StopSubscriptionAsync(Guid managedChannelId, Guid subscriptionId, CancellationToken cancellationToken = default) =>
+        await UpdateSubscriptionAsync(managedChannelId, subscriptionId, false, "Subscription paused.", cancellationToken);
+
+    public async Task<bool> DeleteSubscriptionAsync(Guid managedChannelId, Guid subscriptionId, CancellationToken cancellationToken = default)
+    {
+        if (TelegramUserId is null or 0)
+        {
+            ErrorMessage = "Telegram user is not available.";
+            return false;
+        }
+
+        if (IsSubscriptionBusy(subscriptionId))
+        {
+            return false;
+        }
+
+        PendingSubscriptionIds.Add(subscriptionId);
+
+        try
+        {
+            var deleted = await miniAppChannelService.DeleteSubscriptionAsync(TelegramUserId.Value, managedChannelId, subscriptionId, cancellationToken);
+            if (!deleted)
+            {
+                ErrorMessage = "Subscription was not found.";
+                return false;
+            }
+
+            StatusMessage = "Subscription removed.";
+            ErrorMessage = null;
+            await RefreshChannelsAsync(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            PendingSubscriptionIds.Remove(subscriptionId);
+        }
+    }
+
+    private async Task<bool> UpdateSubscriptionAsync(Guid managedChannelId, Guid subscriptionId, bool isActive, string successMessage, CancellationToken cancellationToken)
+    {
+        if (TelegramUserId is null or 0)
+        {
+            ErrorMessage = "Telegram user is not available.";
+            return false;
+        }
+
+        if (IsSubscriptionBusy(subscriptionId))
+        {
+            return false;
+        }
+
+        PendingSubscriptionIds.Add(subscriptionId);
+
+        try
+        {
+            var updated = await miniAppChannelService.SetSubscriptionActiveAsync(TelegramUserId.Value, managedChannelId, subscriptionId, isActive, cancellationToken);
+            if (!updated)
+            {
+                ErrorMessage = "Subscription was not found.";
+                return false;
+            }
+
+            StatusMessage = successMessage;
+            ErrorMessage = null;
+            await RefreshChannelsAsync(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            PendingSubscriptionIds.Remove(subscriptionId);
         }
     }
 
