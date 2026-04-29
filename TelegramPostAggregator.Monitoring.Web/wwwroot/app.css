@@ -399,6 +399,21 @@ button {
     gap: 16px;
 }
 
+.miniapp-tab-stage {
+    animation-duration: 280ms;
+    animation-timing-function: cubic-bezier(.22, .8, .2, 1);
+    animation-fill-mode: both;
+    will-change: transform, opacity;
+}
+
+.miniapp-tab-stage.tab-enter-left {
+    animation-name: miniapp-slide-left;
+}
+
+.miniapp-tab-stage.tab-enter-right {
+    animation-name: miniapp-slide-right;
+}
+
 .miniapp-panel,
 .channel-card,
 .miniapp-copy-block {
@@ -555,6 +570,15 @@ button {
     background: rgba(255, 255, 255, 0.03);
     color: var(--text);
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.channel-tool svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
 }
 
 .channel-actions {
@@ -819,7 +843,7 @@ button {
 .bottom-nav-item {
     min-height: 62px;
     border: 0;
-    border-radius: 18px;
+    border-radius: 14px;
     background: transparent;
     color: var(--muted);
     display: flex;
@@ -833,7 +857,8 @@ button {
 }
 
 .bottom-nav-item.selected {
-    background: rgba(52, 121, 255, 0.16);
+    background: rgba(52, 121, 255, 0.18);
+    border: 1px solid rgba(88, 144, 255, 0.28);
     color: #8cb6ff;
 }
 
@@ -889,6 +914,30 @@ button {
     }
 }
 
+@keyframes miniapp-slide-left {
+    from {
+        opacity: 0;
+        transform: translate3d(28px, 0, 0) scale(0.985);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+}
+
+@keyframes miniapp-slide-right {
+    from {
+        opacity: 0;
+        transform: translate3d(-28px, 0, 0) scale(0.985);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+}
+
 @media (min-width: 900px) {
     .miniapp-screen {
         width: min(100%, 620px);
@@ -908,12 +957,17 @@ button {
         align-items: flex-start;
     }
 
-    .channel-actions {
-        grid-template-columns: 1fr;
+    .channel-action {
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 8px;
+        gap: 6px;
+        font-size: 0.82rem;
     }
 
-    .channel-action {
-        justify-content: flex-start;
+    .channel-action svg {
+        width: 16px;
+        height: 16px;
     }
 
     .bottom-nav-item {
