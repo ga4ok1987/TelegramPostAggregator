@@ -87,8 +87,10 @@ public static class DependencyInjection
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
 
         services.AddHttpClient(nameof(Services.Monitoring.HttpBotStatusProbe));
+        services.AddHttpClient(nameof(TelegramBotGateway));
         services.AddScoped<IBotStatusProbe, Services.Monitoring.HeartbeatBotStatusProbe>();
         services.AddScoped<IBotStatusProbe, Services.Monitoring.HttpBotStatusProbe>();
+        services.AddSingleton<ITelegramBotGateway, TelegramBotGateway>();
         services.AddScoped<ITelegramMiniAppAuthService, Services.Monitoring.TelegramMiniAppAuthService>();
 
         return services;
