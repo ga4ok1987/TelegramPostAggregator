@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
@@ -15,7 +15,8 @@ namespace TelegramPostAggregator.Infrastructure.Services.Monitoring;
 public sealed class TelegramMiniAppAuthService(
     IAppUserRepository appUserRepository,
     IOptions<MiniAppOptions> miniAppOptions,
-    IOptions<TelegramBotOptions> telegramBotOptions) : ITelegramMiniAppAuthService
+    IOptions<TelegramBotOptions> telegramBotOptions,
+    ILogger<TelegramMiniAppAuthService> logger) : ITelegramMiniAppAuthService
 {
     private const string HashKey = "hash";
     private const string SignatureKey = "signature";
@@ -36,32 +37,34 @@ public sealed class TelegramMiniAppAuthService(
             return Fail("Mini App authorization is not configured on the server.");
         }
 
-        var parsedData = QueryHelpers.ParseQuery(initData);
-        if (!parsedData.TryGetValue(HashKey, out var hashValues))
+        var parsedData = ParseInitData(initData);
+        if (!TryGetValue(parsedData, HashKey, out var receivedHash))
         {
             return Fail("Telegram authorization payload is incomplete.");
         }
 
-        var receivedHash = hashValues.ToString();
         if (string.IsNullOrWhiteSpace(receivedHash))
         {
             return Fail("Telegram authorization hash is missing.");
         }
 
-        var dataCheckString = BuildDataCheckString(parsedData, excludeSignature: false);
-        var dataCheckStringWithoutSignature = BuildDataCheckString(parsedData, excludeSignature: true);
-        var computedHash = ComputeHash(botToken, dataCheckString);
-        var computedHashWithoutSignature = ComputeHash(botToken, dataCheckStringWithoutSignature);
-        var legacyComputedHash = ComputeLegacyCompatibleHash(botToken, dataCheckString);
-        var legacyComputedHashWithoutSignature = ComputeLegacyCompatibleHash(botToken, dataCheckStringWithoutSignature);
+        var hashCandidates = BuildHashCandidates(botToken, parsedData);
+        var matchedCandidate = hashCandidates.FirstOrDefault(candidate => FixedTimeEquals(receivedHash, candidate.Hash));
 
-        if (!FixedTimeEquals(receivedHash, computedHash) &&
-            !FixedTimeEquals(receivedHash, computedHashWithoutSignature) &&
-            !FixedTimeEquals(receivedHash, legacyComputedHash) &&
-            !FixedTimeEquals(receivedHash, legacyComputedHashWithoutSignature))
+        if (matchedCandidate is null)
         {
+            logger.LogWarning(
+                "Mini App authorization hash mismatch. Keys: {Keys}. Hash prefix: {HashPrefix}. Signature present: {HasSignature}.",
+                string.Join(", ", parsedData.Select(static item => item.Key).OrderBy(static value => value, StringComparer.Ordinal)),
+                TruncateForLog(receivedHash, 10),
+                parsedData.Any(static pair => string.Equals(pair.Key, SignatureKey, StringComparison.Ordinal)));
             return Fail("Telegram authorization could not be verified.");
         }
+
+        logger.LogInformation(
+            "Mini App authorization verified using {CandidateName}. Signature present: {HasSignature}.",
+            matchedCandidate.Name,
+            parsedData.Any(static pair => string.Equals(pair.Key, SignatureKey, StringComparison.Ordinal)));
 
         if (!TryReadAuthDate(parsedData, out var authDateUtc))
         {
@@ -74,7 +77,7 @@ public sealed class TelegramMiniAppAuthService(
             return Fail("Telegram authorization expired. Reopen the Mini App from the bot.");
         }
 
-        if (!parsedData.TryGetValue("user", out var userValues))
+        if (!TryGetValue(parsedData, "user", out var userPayload))
         {
             return Fail("Telegram user payload is missing.");
         }
@@ -82,7 +85,7 @@ public sealed class TelegramMiniAppAuthService(
         TelegramMiniAppUserPayload? user;
         try
         {
-            user = JsonSerializer.Deserialize<TelegramMiniAppUserPayload>(userValues.ToString(), JsonOptions);
+            user = JsonSerializer.Deserialize<TelegramMiniAppUserPayload>(userPayload, JsonOptions);
         }
         catch (JsonException)
         {
@@ -115,16 +118,16 @@ public sealed class TelegramMiniAppAuthService(
     }
 
     private static bool TryReadAuthDate(
-        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> parsedData,
+        IReadOnlyList<InitDataItem> parsedData,
         out DateTimeOffset authDateUtc)
     {
         authDateUtc = default;
-        if (!parsedData.TryGetValue("auth_date", out var authDateValues))
+        if (!TryGetValue(parsedData, "auth_date", out var authDateValue))
         {
             return false;
         }
 
-        if (!long.TryParse(authDateValues.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var unixTimeSeconds))
+        if (!long.TryParse(authDateValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unixTimeSeconds))
         {
             return false;
         }
@@ -133,16 +136,75 @@ public sealed class TelegramMiniAppAuthService(
         return true;
     }
 
+    private static List<HashCandidate> BuildHashCandidates(string botToken, IReadOnlyList<InitDataItem> parsedData)
+    {
+        var candidates = new List<HashCandidate>(8);
+        AddCandidate(candidates, "decoded", botToken, BuildDataCheckString(parsedData, excludeSignature: false, static pair => pair.Value), useLegacy: false);
+        AddCandidate(candidates, "decoded-no-signature", botToken, BuildDataCheckString(parsedData, excludeSignature: true, static pair => pair.Value), useLegacy: false);
+        AddCandidate(candidates, "raw", botToken, BuildDataCheckString(parsedData, excludeSignature: false, static pair => pair.RawValue), useLegacy: false);
+        AddCandidate(candidates, "raw-no-signature", botToken, BuildDataCheckString(parsedData, excludeSignature: true, static pair => pair.RawValue), useLegacy: false);
+        AddCandidate(candidates, "decoded-legacy", botToken, BuildDataCheckString(parsedData, excludeSignature: false, static pair => pair.Value), useLegacy: true);
+        AddCandidate(candidates, "decoded-no-signature-legacy", botToken, BuildDataCheckString(parsedData, excludeSignature: true, static pair => pair.Value), useLegacy: true);
+        AddCandidate(candidates, "raw-legacy", botToken, BuildDataCheckString(parsedData, excludeSignature: false, static pair => pair.RawValue), useLegacy: true);
+        AddCandidate(candidates, "raw-no-signature-legacy", botToken, BuildDataCheckString(parsedData, excludeSignature: true, static pair => pair.RawValue), useLegacy: true);
+        return candidates;
+    }
+
+    private static void AddCandidate(List<HashCandidate> candidates, string name, string botToken, string dataCheckString, bool useLegacy)
+    {
+        var hash = useLegacy
+            ? ComputeLegacyCompatibleHash(botToken, dataCheckString)
+            : ComputeHash(botToken, dataCheckString);
+
+        candidates.Add(new HashCandidate(name, hash));
+    }
+
     private static string BuildDataCheckString(
-        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> parsedData,
-        bool excludeSignature) =>
+        IReadOnlyList<InitDataItem> parsedData,
+        bool excludeSignature,
+        Func<InitDataItem, string> valueSelector) =>
         string.Join(
             "\n",
             parsedData
                 .Where(pair => !string.Equals(pair.Key, HashKey, StringComparison.Ordinal) &&
                                (!excludeSignature || !string.Equals(pair.Key, SignatureKey, StringComparison.Ordinal)))
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => $"{pair.Key}={pair.Value.ToString()}"));
+                .Select(pair => $"{pair.Key}={valueSelector(pair)}"));
+
+    private static List<InitDataItem> ParseInitData(string initData)
+    {
+        var items = new List<InitDataItem>();
+        foreach (var segment in initData.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separatorIndex = segment.IndexOf('=');
+            var rawKey = separatorIndex >= 0 ? segment[..separatorIndex] : segment;
+            var rawValue = separatorIndex >= 0 ? segment[(separatorIndex + 1)..] : string.Empty;
+
+            var key = DecodeFormComponent(rawKey);
+            var value = DecodeFormComponent(rawValue);
+            items.Add(new InitDataItem(key, value, rawValue));
+        }
+
+        return items;
+    }
+
+    private static string DecodeFormComponent(string value) =>
+        Uri.UnescapeDataString(value.Replace("+", "%20", StringComparison.Ordinal));
+
+    private static bool TryGetValue(IReadOnlyList<InitDataItem> items, string key, out string value)
+    {
+        foreach (var item in items)
+        {
+            if (string.Equals(item.Key, key, StringComparison.Ordinal))
+            {
+                value = item.Value;
+                return true;
+            }
+        }
+
+        value = string.Empty;
+        return false;
+    }
 
     private static string ComputeHash(string botToken, string dataCheckString)
     {
@@ -186,6 +248,13 @@ public sealed class TelegramMiniAppAuthService(
 
     private static MiniAppAuthResultDto Fail(string message) =>
         new(false, null, null, null, null, message);
+
+    private static string TruncateForLog(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
+
+    private sealed record HashCandidate(string Name, string Hash);
+
+    private readonly record struct InitDataItem(string Key, string Value, string RawValue);
 
     private sealed class TelegramMiniAppUserPayload
     {
