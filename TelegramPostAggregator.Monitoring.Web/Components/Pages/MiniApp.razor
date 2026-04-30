@@ -6,7 +6,7 @@
 
 <PageTitle>Channels Monitor Mini App</PageTitle>
 
-<div class="miniapp-screen" @ontouchstart="HandleTouchStart" @ontouchend="HandleTouchEnd">
+<div class="miniapp-screen">
     <header class="miniapp-topbar">
         <button class="icon-button" type="button" @onclick="OpenDrawerAsync" aria-label="Menu">
             <span></span>
@@ -54,7 +54,7 @@
         }
         else
         {
-            <section class="miniapp-tab-stage @TabTransitionClass">
+            <section class="miniapp-tab-stage">
                 @switch (ActiveTab)
                 {
                     case MiniAppTab.Channels:
@@ -368,9 +368,6 @@
 @code {
     private MiniAppTab ActiveTab { get; set; } = MiniAppTab.Channels;
     private MiniAppChannelDto? SelectedChannel { get; set; }
-    private string TabTransitionClass { get; set; } = "tab-enter";
-    private double? TouchStartX { get; set; }
-
     private string CurrentTitle => ActiveTab switch
     {
         MiniAppTab.Channels => "My Private Channels",
@@ -405,9 +402,7 @@
             return;
         }
 
-        var direction = GetTabIndex(tab) > GetTabIndex(ActiveTab) ? "tab-enter-left" : "tab-enter-right";
         ActiveTab = tab;
-        _ = AnimateTabTransitionAsync(direction);
     }
 
     private async Task StartAsync(Guid channelId) => await ExecuteAsync(() => ViewModel.StartChannelAsync(channelId));
@@ -483,67 +478,6 @@
 
         await ExecuteAsync(() => ViewModel.DeleteSubscriptionAsync(channelId, subscriptionId));
     }
-
-    private void HandleTouchStart(TouchEventArgs args)
-    {
-        var touch = args.Touches.FirstOrDefault();
-        TouchStartX = touch?.ClientX;
-    }
-
-    private void HandleTouchEnd(TouchEventArgs args)
-    {
-        if (TouchStartX is null)
-        {
-            return;
-        }
-
-        var touch = args.ChangedTouches.FirstOrDefault();
-        if (touch is null)
-        {
-            TouchStartX = null;
-            return;
-        }
-
-        var endX = touch.ClientX;
-        var deltaX = endX - TouchStartX.Value;
-        TouchStartX = null;
-
-        const double threshold = 56;
-        if (Math.Abs(deltaX) < threshold)
-        {
-            return;
-        }
-
-        var currentIndex = GetTabIndex(ActiveTab);
-        var tabCount = Enum.GetValues<MiniAppTab>().Length;
-        var targetIndex = deltaX < 0
-            ? (currentIndex + 1) % tabCount
-            : (currentIndex - 1 + tabCount) % tabCount;
-
-        if (targetIndex == currentIndex)
-        {
-            return;
-        }
-
-        ActivateTab((MiniAppTab)targetIndex);
-    }
-
-    private async Task AnimateTabTransitionAsync(string cssClass)
-    {
-        TabTransitionClass = cssClass;
-        await InvokeAsync(StateHasChanged);
-        await Task.Delay(280);
-        TabTransitionClass = "tab-enter";
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private static int GetTabIndex(MiniAppTab tab) => tab switch
-    {
-        MiniAppTab.Channels => 0,
-        MiniAppTab.Summary => 1,
-        MiniAppTab.Settings => 2,
-        _ => 0
-    };
 
     private static string BuildAvatar(string channelName)
     {
