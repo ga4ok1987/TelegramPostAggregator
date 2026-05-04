@@ -461,6 +461,12 @@ public sealed class BotLocalizationCatalog
                 return true;
             }
 
+            if (string.Equals(text, FaqButtonLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                action = BotMainMenuAction.Faq;
+                return true;
+            }
+
             if (string.Equals(text, locale.DeleteAllLabel, StringComparison.OrdinalIgnoreCase))
             {
                 action = BotMainMenuAction.DeleteAll;
@@ -550,6 +556,8 @@ public sealed class BotLocalizationCatalog
 
     public string ManagedChannelsButtonLabel => "Add my channel";
 
+    public string FaqButtonLabel => "FAQ";
+
     public bool IsManagedChannelsRequestLabel(string? text) =>
         string.Equals(text?.Trim(), ManagedChannelsButtonLabel, StringComparison.OrdinalIgnoreCase);
 
@@ -620,6 +628,7 @@ public enum BotMainMenuAction
     Start = 1,
     Stop = 2,
     List = 3,
-    DeleteAll = 4,
-    Language = 5
+    Faq = 4,
+    DeleteAll = 5,
+    Language = 6
 }

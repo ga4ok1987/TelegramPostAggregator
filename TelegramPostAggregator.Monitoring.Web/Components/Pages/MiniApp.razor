@@ -227,10 +227,31 @@
 
                     case MiniAppTab.Settings:
                         <section class="miniapp-stack">
-                            <article class="miniapp-panel placeholder-panel">
-                                <h3>Settings placeholder</h3>
-                                <p>This section is ready for notification controls, language preferences, and future bot options.</p>
-                                <button class="secondary-action" type="button" @onclick="ShowSettingsHintAsync">Preview planned options</button>
+                            <article class="miniapp-panel faq-panel">
+                                <span class="miniapp-kicker">FAQ</span>
+                                <h3>How to work with your channels</h3>
+                                <div class="faq-list">
+                                    <section class="faq-item">
+                                        <h4>1. Connect your own channel</h4>
+                                        <p>Add the bot as an administrator in your channel, then open the bot chat and press <strong>Add my channel</strong>. After that, come back here and refresh the list.</p>
+                                    </section>
+                                    <section class="faq-item">
+                                        <h4>2. What appears in this list</h4>
+                                        <p>Only channels you explicitly shared with the bot are shown here. If a channel is missing, share it again through <strong>Add my channel</strong>.</p>
+                                    </section>
+                                    <section class="faq-item">
+                                        <h4>3. How to add subscriptions into your channel</h4>
+                                        <p>Open the connected Telegram channel and send one separate message containing a source link like <strong>https://t.me/source_channel</strong> or <strong>@@source_channel</strong>. The bot will start monitoring that source for this destination channel.</p>
+                                    </section>
+                                    <section class="faq-item">
+                                        <h4>4. How channel controls work</h4>
+                                        <p><strong>Start</strong> enables delivery of new posts, <strong>Stop</strong> pauses it, and <strong>Delete</strong> removes the connected channel from this Mini App.</p>
+                                    </section>
+                                    <section class="faq-item">
+                                        <h4>5. How subscription controls work</h4>
+                                        <p>Open <strong>Subscriptions</strong> on a channel card to manage each source separately. There you can start, stop, or delete each source subscription.</p>
+                                    </section>
+                                </div>
                             </article>
                         </section>
                         break;

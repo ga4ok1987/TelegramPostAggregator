@@ -18,6 +18,7 @@ public sealed class BotMenuFactory(
             new List<BotButtonDto> { new(locale.StartLabel), new(locale.StopLabel) },
             new List<BotButtonDto> { new(locale.ListLabel) },
             new List<BotButtonDto> { new(localizationCatalog.ManagedChannelsButtonLabel, RequestChat: BuildManagedChannelsRequest()) },
+            new List<BotButtonDto> { new(localizationCatalog.FaqButtonLabel) },
             new List<BotButtonDto> { new(locale.DeleteAllLabel) }
         };
 

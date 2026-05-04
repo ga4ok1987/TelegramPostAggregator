@@ -80,6 +80,12 @@ public sealed class BotUpdateProcessor(
             return await BuildSubscriptionsListResultAsync(sourceUser.TelegramUserId, languageCode, cancellationToken);
         }
 
+        if (text.StartsWith("/faq", StringComparison.OrdinalIgnoreCase) ||
+            (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.Faq))
+        {
+            return new BotCommandResultDto(true, messages.BuildBotFaqMessage(languageCode), menuFactory.BuildMainMenu(languageCode));
+        }
+
         if (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.DeleteAll)
         {
             return new BotCommandResultDto(
