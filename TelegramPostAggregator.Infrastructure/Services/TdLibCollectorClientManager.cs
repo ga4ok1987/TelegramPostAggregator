@@ -274,21 +274,6 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                         collectorAccount,
                         newMessage.Message);
                     break;
-                case TdApi.Update.UpdateMessageEdited editedMessage when runtime.IsReady:
-                    await _realtimePostIngestionService.HandleMessageEditedAsync(
-                        runtime.Client,
-                        collectorAccount,
-                        editedMessage.ChatId,
-                        editedMessage.MessageId,
-                        DateTimeOffset.FromUnixTimeSeconds(editedMessage.EditDate));
-                    break;
-                case TdApi.Update.UpdateMessageContent contentUpdate when runtime.IsReady:
-                    await _realtimePostIngestionService.HandleMessageContentUpdatedAsync(
-                        runtime.Client,
-                        collectorAccount,
-                        contentUpdate.ChatId,
-                        contentUpdate.MessageId);
-                    break;
             }
         }
         catch (Exception exception)

@@ -619,11 +619,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
                     b.Property<bool>("HasMedia")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsEdited")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
                     b.Property<bool>("IsForwarded")
                         .HasColumnType("boolean");
 
@@ -657,9 +652,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasDefaultValue("ChannelPost");
 
-                    b.Property<DateTimeOffset?>("TelegramEditDateUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<long>("TelegramMessageId")
                         .HasColumnType("bigint");
 
@@ -676,113 +668,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("telegram_posts", (string)null);
-                });
-
-            modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TelegramPostDelivery", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<DateTimeOffset>("DeliveredAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("DeliveredTelegramMessageId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("DestinationChatId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("DestinationKind")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("PostId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("RevisionNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DestinationKind", "DestinationChatId", "DeliveredAtUtc");
-
-                    b.HasIndex("PostId", "DestinationKind", "DestinationChatId", "RevisionNumber")
-                        .IsUnique();
-
-                    b.ToTable("telegram_post_deliveries", (string)null);
-                });
-
-            modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TelegramPostRevision", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<bool>("HasMedia")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsEdited")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<string>("MediaGroupId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("MetadataJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("NormalizedText")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("OriginalPostUrl")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<Guid>("PostId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RawText")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("RevisionNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("TelegramEditDateUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PostId", "RevisionNumber")
-                        .IsUnique();
-
-                    b.ToTable("telegram_post_revisions", (string)null);
                 });
 
             modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TrackedChannel", b =>
@@ -990,28 +875,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
                     b.Navigation("CollectorAccount");
                 });
 
-            modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TelegramPostDelivery", b =>
-                {
-                    b.HasOne("TelegramPostAggregator.Domain.Entities.TelegramPost", "Post")
-                        .WithMany("Deliveries")
-                        .HasForeignKey("PostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Post");
-                });
-
-            modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TelegramPostRevision", b =>
-                {
-                    b.HasOne("TelegramPostAggregator.Domain.Entities.TelegramPost", "Post")
-                        .WithMany("Revisions")
-                        .HasForeignKey("PostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Post");
-                });
-
             modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.UserChannelSubscription", b =>
                 {
                     b.HasOne("TelegramPostAggregator.Domain.Entities.TrackedChannel", "Channel")
@@ -1050,13 +913,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.ManagedChannel", b =>
                 {
                     b.Navigation("SourceSubscriptions");
-                });
-
-            modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TelegramPost", b =>
-                {
-                    b.Navigation("Deliveries");
-
-                    b.Navigation("Revisions");
                 });
 
             modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.TrackedChannel", b =>

@@ -79,8 +79,6 @@ public sealed class TelegramFeedDeliveryService(
         var subscriptionRepository = scope.ServiceProvider.GetRequiredService<ISubscriptionRepository>();
         var managedChannelSubscriptionRepository = scope.ServiceProvider.GetRequiredService<IManagedChannelSubscriptionRepository>();
         var postRepository = scope.ServiceProvider.GetRequiredService<IPostRepository>();
-        var postRevisionRepository = scope.ServiceProvider.GetRequiredService<IPostRevisionRepository>();
-        var postDeliveryRepository = scope.ServiceProvider.GetRequiredService<IPostDeliveryRepository>();
         var billingService = scope.ServiceProvider.GetRequiredService<IBillingService>();
 
         var subscriptions = await subscriptionRepository.GetActiveForDeliveryAsync(int.MaxValue, cancellationToken);
@@ -145,22 +143,13 @@ public sealed class TelegramFeedDeliveryService(
                     var deliveredPosts = groupedPosts.Count > 0 ? groupedPosts : [post];
                     var contentSourcePost = await ResolveContentSourcePostAsync(postRepository, deliveredPosts, subscriptionToken);
                     var checkpointPost = deliveredPosts[^1];
-                    var delivery = await SendPostsAsync(subscription.User.TelegramUserId, deliveredPosts, contentSourcePost, subscriptionToken);
-                    var response = delivery.Result;
+                    var response = await SendPostsAsync(subscription.User.TelegramUserId, deliveredPosts, contentSourcePost, subscriptionToken);
 
                     if (response.IsSuccessStatusCode)
                     {
                         subscription.LastDeliveredTelegramMessageId = checkpointPost.TelegramMessageId;
                         subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
                         subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
-                        await RecordSuccessfulDeliveryAsync(
-                            postRevisionRepository,
-                            postDeliveryRepository,
-                            checkpointPost,
-                            Domain.Enums.PostDeliveryDestinationKind.DirectBot,
-                            subscription.User.TelegramUserId,
-                            delivery.DeliveredMessageId,
-                            subscriptionToken);
                         deliveredBatchCount += deliveredPosts.Count;
                         index += deliveredPosts.Count - 1;
 
@@ -185,13 +174,6 @@ public sealed class TelegramFeedDeliveryService(
                         break;
                     }
                 }
-
-                await DeliverEditedPostsToDirectSubscriptionAsync(
-                    subscription,
-                    postRepository,
-                    postRevisionRepository,
-                    postDeliveryRepository,
-                    subscriptionToken);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -283,22 +265,13 @@ public sealed class TelegramFeedDeliveryService(
                     var deliveredPosts = groupedPosts.Count > 0 ? groupedPosts : [post];
                     var contentSourcePost = await ResolveContentSourcePostAsync(postRepository, deliveredPosts, subscriptionToken);
                     var checkpointPost = deliveredPosts[^1];
-                    var delivery = await SendPostsAsync(subscription.ManagedChannel.TelegramChatId, deliveredPosts, contentSourcePost, subscriptionToken);
-                    var response = delivery.Result;
+                    var response = await SendPostsAsync(subscription.ManagedChannel.TelegramChatId, deliveredPosts, contentSourcePost, subscriptionToken);
 
                     if (response.IsSuccessStatusCode)
                     {
                         subscription.LastDeliveredTelegramMessageId = checkpointPost.TelegramMessageId;
                         subscription.LastDeliveredAtUtc = DateTimeOffset.UtcNow;
                         subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
-                        await RecordSuccessfulDeliveryAsync(
-                            postRevisionRepository,
-                            postDeliveryRepository,
-                            checkpointPost,
-                            Domain.Enums.PostDeliveryDestinationKind.ManagedChannel,
-                            subscription.ManagedChannel.TelegramChatId,
-                            delivery.DeliveredMessageId,
-                            subscriptionToken);
                         deliveredBatchCount += deliveredPosts.Count;
                         index += deliveredPosts.Count - 1;
 
@@ -323,13 +296,6 @@ public sealed class TelegramFeedDeliveryService(
                         break;
                     }
                 }
-
-                await DeliverEditedPostsToManagedChannelSubscriptionAsync(
-                    subscription,
-                    postRepository,
-                    postRevisionRepository,
-                    postDeliveryRepository,
-                    subscriptionToken);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -361,7 +327,6 @@ public sealed class TelegramFeedDeliveryService(
 
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
         await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
-        await postDeliveryRepository.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> FilterDirectSubscriptionsForCurrentPlanAsync(
@@ -452,7 +417,7 @@ public sealed class TelegramFeedDeliveryService(
         return orderedChannels.ToHashSet();
     }
 
-    private async Task<DeliveryDispatchResult> SendPostsAsync(
+    private async Task<TelegramBotApiResultDto> SendPostsAsync(
         long chatId,
         IReadOnlyList<Domain.Entities.TelegramPost> posts,
         Domain.Entities.TelegramPost contentSourcePost,
@@ -471,18 +436,14 @@ public sealed class TelegramFeedDeliveryService(
             var albumResponse = await SendMediaGroupAsync(chatId, posts, captionRender.Caption, cancellationToken);
             if (albumResponse is not null)
             {
-                if (albumResponse.Result.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                if (albumResponse.StatusCode == HttpStatusCode.RequestEntityTooLarge)
                 {
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                if (!albumResponse.Result.IsSuccessStatusCode)
-                {
-                    return albumResponse;
-                }
-
-                var overflowResult = await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken);
-                return overflowResult.Result.IsSuccessStatusCode ? albumResponse : overflowResult;
+                return albumResponse.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : albumResponse;
             }
         }
 
@@ -501,7 +462,7 @@ public sealed class TelegramFeedDeliveryService(
                 post.Id,
                 metadata?.ContentType ?? "(unknown)",
                 chatId);
-            return new DeliveryDispatchResult(new TelegramBotApiResultDto(true, HttpStatusCode.NoContent), null);
+            return new TelegramBotApiResultDto(true, HttpStatusCode.NoContent);
         }
 
         if (metadata?.MediaKind == "photo")
@@ -517,7 +478,9 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, captionRender.OverflowMessages, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -534,7 +497,9 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, captionRender.OverflowMessages, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -551,7 +516,9 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, captionRender.OverflowMessages, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -568,7 +535,9 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, captionRender.OverflowMessages, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -585,7 +554,9 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, captionRender.OverflowMessages, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -602,7 +573,9 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, captionRender.OverflowMessages, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, captionRender.OverflowMessages, cancellationToken)
+                    : response;
             }
         }
 
@@ -619,14 +592,16 @@ public sealed class TelegramFeedDeliveryService(
                     return await SendTextFallbackAsync(chatId, posts, cancellationToken);
                 }
 
-                return await CombineMediaResponseWithOverflowAsync(chatId, response, messageParts, cancellationToken);
+                return response.IsSuccessStatusCode
+                    ? await SendOverflowMessagesAsync(chatId, messageParts, cancellationToken)
+                    : response;
             }
         }
 
         return await SendOverflowMessagesAsync(chatId, messageParts, cancellationToken);
     }
 
-    private Task<DeliveryDispatchResult> SendTextFallbackAsync(
+    private Task<TelegramBotApiResultDto> SendTextFallbackAsync(
         long chatId,
         IReadOnlyList<Domain.Entities.TelegramPost> posts,
         CancellationToken cancellationToken)
@@ -649,7 +624,7 @@ public sealed class TelegramFeedDeliveryService(
         return SendOverflowMessagesAsync(chatId, messages, cancellationToken);
     }
 
-    private async Task<DeliveryDispatchResult?> SendMediaGroupAsync(
+    private async Task<TelegramBotApiResultDto?> SendMediaGroupAsync(
         long chatId,
         IReadOnlyList<Domain.Entities.TelegramPost> posts,
         string caption,
@@ -678,18 +653,14 @@ public sealed class TelegramFeedDeliveryService(
                 index == 0 ? HtmlParseMode : null));
         }
 
-        var response = await telegramBotGateway.SendMediaGroupAsync(new TelegramBotMediaGroupMessageDto(chatId, items), cancellationToken);
-        return response is null
-            ? null
-            : new DeliveryDispatchResult(response, TryExtractFirstMessageId(response));
+        return await telegramBotGateway.SendMediaGroupAsync(new TelegramBotMediaGroupMessageDto(chatId, items), cancellationToken);
     }
 
-    private async Task<DeliveryDispatchResult> SendOverflowMessagesAsync(
+    private async Task<TelegramBotApiResultDto> SendOverflowMessagesAsync(
         long chatId,
         IReadOnlyList<string> overflowMessages,
         CancellationToken cancellationToken)
     {
-        long? firstMessageId = null;
         foreach (var overflowMessage in overflowMessages)
         {
             var response = await telegramBotGateway.SendMessageAsync(
@@ -697,13 +668,11 @@ public sealed class TelegramFeedDeliveryService(
                 cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                return new DeliveryDispatchResult(response, firstMessageId);
+                return response;
             }
-
-            firstMessageId ??= TryExtractFirstMessageId(response);
         }
 
-        return new DeliveryDispatchResult(new TelegramBotApiResultDto(true, HttpStatusCode.OK), firstMessageId);
+        return new TelegramBotApiResultDto(true, HttpStatusCode.OK);
     }
 
     private async Task<string?> EnsureMediaLocalPathAsync(
@@ -727,284 +696,6 @@ public sealed class TelegramFeedDeliveryService(
             metadata.MessageId,
             metadata.MediaKind,
             cancellationToken);
-    }
-
-    private async Task DeliverEditedPostsToDirectSubscriptionAsync(
-        Domain.Entities.UserChannelSubscription subscription,
-        IPostRepository postRepository,
-        IPostRevisionRepository postRevisionRepository,
-        IPostDeliveryRepository postDeliveryRepository,
-        CancellationToken cancellationToken)
-    {
-        var pendingPosts = await postDeliveryRepository.GetPendingEditedPostsForDestinationAsync(
-            subscription.ChannelId,
-            Domain.Enums.PostDeliveryDestinationKind.DirectBot,
-            subscription.User.TelegramUserId,
-            subscription.LastDeliveredTelegramMessageId ?? 0,
-            _options.DeliveryPostsPerSubscription,
-            cancellationToken);
-
-        foreach (var post in pendingPosts)
-        {
-            var previousDelivery = await postDeliveryRepository.GetLatestForPostAndDestinationAsync(
-                post.Id,
-                Domain.Enums.PostDeliveryDestinationKind.DirectBot,
-                subscription.User.TelegramUserId,
-                cancellationToken);
-            var latestRevision = await postRevisionRepository.GetLatestByPostIdAsync(post.Id, cancellationToken);
-            if (latestRevision is null || (previousDelivery is not null && latestRevision.RevisionNumber <= previousDelivery.RevisionNumber))
-            {
-                continue;
-            }
-
-            var formattedPost = CreateEditedPresentationPost(post, null);
-            var delivery = await SendPostsAsync(
-                subscription.User.TelegramUserId,
-                await ResolveEditedDeliveryPostsAsync(postRepository, post, cancellationToken),
-                formattedPost,
-                cancellationToken);
-
-            if (!delivery.Result.IsSuccessStatusCode)
-            {
-                await errorAlertService.SendAsync(
-                    "Telegram edited delivery failed",
-                    BuildDeliveryAlertMessage(subscription, post, (int)delivery.Result.StatusCode, delivery.Result.ResponseBody),
-                    cancellationToken: cancellationToken);
-                break;
-            }
-
-            await postDeliveryRepository.AddAsync(
-                new Domain.Entities.TelegramPostDelivery
-                {
-                    PostId = post.Id,
-                    RevisionNumber = latestRevision.RevisionNumber,
-                    DestinationKind = Domain.Enums.PostDeliveryDestinationKind.DirectBot,
-                    DestinationChatId = subscription.User.TelegramUserId,
-                    DeliveredTelegramMessageId = delivery.DeliveredMessageId ?? 0,
-                    DeliveredAtUtc = DateTimeOffset.UtcNow
-                },
-                cancellationToken);
-        }
-    }
-
-    private async Task DeliverEditedPostsToManagedChannelSubscriptionAsync(
-        Domain.Entities.ManagedChannelSubscription subscription,
-        IPostRepository postRepository,
-        IPostRevisionRepository postRevisionRepository,
-        IPostDeliveryRepository postDeliveryRepository,
-        CancellationToken cancellationToken)
-    {
-        var pendingPosts = await postDeliveryRepository.GetPendingEditedPostsForDestinationAsync(
-            subscription.ChannelId,
-            Domain.Enums.PostDeliveryDestinationKind.ManagedChannel,
-            subscription.ManagedChannel.TelegramChatId,
-            subscription.LastDeliveredTelegramMessageId ?? 0,
-            _options.DeliveryPostsPerSubscription,
-            cancellationToken);
-
-        foreach (var post in pendingPosts)
-        {
-            var previousDelivery = await postDeliveryRepository.GetLatestForPostAndDestinationAsync(
-                post.Id,
-                Domain.Enums.PostDeliveryDestinationKind.ManagedChannel,
-                subscription.ManagedChannel.TelegramChatId,
-                cancellationToken);
-            var latestRevision = await postRevisionRepository.GetLatestByPostIdAsync(post.Id, cancellationToken);
-            if (latestRevision is null || (previousDelivery is not null && latestRevision.RevisionNumber <= previousDelivery.RevisionNumber))
-            {
-                continue;
-            }
-
-            var previousVersionUrl = BuildDestinationMessageUrl(
-                Domain.Enums.PostDeliveryDestinationKind.ManagedChannel,
-                subscription.ManagedChannel.TelegramChatId,
-                previousDelivery?.DeliveredTelegramMessageId ?? 0);
-            var formattedPost = CreateEditedPresentationPost(post, previousVersionUrl);
-            var delivery = await SendPostsAsync(
-                subscription.ManagedChannel.TelegramChatId,
-                await ResolveEditedDeliveryPostsAsync(postRepository, post, cancellationToken),
-                formattedPost,
-                cancellationToken);
-
-            if (!delivery.Result.IsSuccessStatusCode)
-            {
-                await errorAlertService.SendAsync(
-                    "Telegram edited delivery failed",
-                    BuildDeliveryAlertMessage(subscription, post, (int)delivery.Result.StatusCode, delivery.Result.ResponseBody),
-                    cancellationToken: cancellationToken);
-                break;
-            }
-
-            await postDeliveryRepository.AddAsync(
-                new Domain.Entities.TelegramPostDelivery
-                {
-                    PostId = post.Id,
-                    RevisionNumber = latestRevision.RevisionNumber,
-                    DestinationKind = Domain.Enums.PostDeliveryDestinationKind.ManagedChannel,
-                    DestinationChatId = subscription.ManagedChannel.TelegramChatId,
-                    DeliveredTelegramMessageId = delivery.DeliveredMessageId ?? 0,
-                    DeliveredAtUtc = DateTimeOffset.UtcNow
-                },
-                cancellationToken);
-        }
-    }
-
-    private static async Task RecordSuccessfulDeliveryAsync(
-        IPostRevisionRepository postRevisionRepository,
-        IPostDeliveryRepository postDeliveryRepository,
-        Domain.Entities.TelegramPost post,
-        Domain.Enums.PostDeliveryDestinationKind destinationKind,
-        long destinationChatId,
-        long? deliveredMessageId,
-        CancellationToken cancellationToken)
-    {
-        if (!deliveredMessageId.HasValue || deliveredMessageId.Value <= 0)
-        {
-            return;
-        }
-
-        var latestRevision = await postRevisionRepository.GetLatestByPostIdAsync(post.Id, cancellationToken);
-        if (latestRevision is null)
-        {
-            return;
-        }
-
-        var existing = await postDeliveryRepository.GetLatestForPostAndDestinationAsync(
-            post.Id,
-            destinationKind,
-            destinationChatId,
-            cancellationToken);
-        if (existing is not null && existing.RevisionNumber >= latestRevision.RevisionNumber)
-        {
-            return;
-        }
-
-        await postDeliveryRepository.AddAsync(
-            new Domain.Entities.TelegramPostDelivery
-            {
-                PostId = post.Id,
-                RevisionNumber = latestRevision.RevisionNumber,
-                DestinationKind = destinationKind,
-                DestinationChatId = destinationChatId,
-                DeliveredTelegramMessageId = deliveredMessageId.Value,
-                DeliveredAtUtc = DateTimeOffset.UtcNow
-            },
-            cancellationToken);
-    }
-
-    private async Task<DeliveryDispatchResult> CombineMediaResponseWithOverflowAsync(
-        long chatId,
-        TelegramBotApiResultDto response,
-        IReadOnlyList<string> overflowMessages,
-        CancellationToken cancellationToken)
-    {
-        if (!response.IsSuccessStatusCode)
-        {
-            return new DeliveryDispatchResult(response, null);
-        }
-
-        var overflowResult = await SendOverflowMessagesAsync(chatId, overflowMessages, cancellationToken);
-        return overflowResult.Result.IsSuccessStatusCode
-            ? new DeliveryDispatchResult(response, TryExtractFirstMessageId(response))
-            : overflowResult;
-    }
-
-    private static string BuildEditedRawText(string rawText) =>
-        string.IsNullOrWhiteSpace(rawText)
-            ? "Відредаговано"
-            : $"Відредаговано{Environment.NewLine}{Environment.NewLine}{rawText.Trim()}";
-
-    private static string? BuildEditedFooter(string? previousDeliveryUrl, string? originalPostUrl)
-    {
-        var lines = new List<string>();
-        if (!string.IsNullOrWhiteSpace(previousDeliveryUrl))
-        {
-            lines.Add($"Попередня версія: {previousDeliveryUrl.Trim()}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(originalPostUrl))
-        {
-            lines.Add($"Оригінал: {originalPostUrl.Trim()}");
-        }
-
-        return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines);
-    }
-
-    private static Domain.Entities.TelegramPost CreateEditedPresentationPost(
-        Domain.Entities.TelegramPost post,
-        string? previousDeliveryUrl)
-    {
-        var footer = BuildEditedFooter(previousDeliveryUrl, post.OriginalPostUrl);
-        return new Domain.Entities.TelegramPost
-        {
-            Channel = post.Channel,
-            RawText = BuildEditedRawText(post.RawText),
-            OriginalPostUrl = footer
-        };
-    }
-
-    private async Task<IReadOnlyList<Domain.Entities.TelegramPost>> ResolveEditedDeliveryPostsAsync(
-        IPostRepository postRepository,
-        Domain.Entities.TelegramPost post,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(post.MediaGroupId))
-        {
-            return [post];
-        }
-
-        var groupPosts = await postRepository.GetByChannelAndMediaGroupIdAsync(post.ChannelId, post.MediaGroupId, cancellationToken);
-        return groupPosts.Count == 0 ? [post] : groupPosts;
-    }
-
-    private static string? BuildDestinationMessageUrl(
-        Domain.Enums.PostDeliveryDestinationKind destinationKind,
-        long destinationChatId,
-        long deliveredTelegramMessageId) =>
-        destinationKind == Domain.Enums.PostDeliveryDestinationKind.ManagedChannel &&
-        TelegramChannelLinkHelper.TryBuildPrivatePostUrl(destinationChatId, deliveredTelegramMessageId, out var url)
-            ? url
-            : null;
-
-    private static long? TryExtractFirstMessageId(TelegramBotApiResultDto response)
-    {
-        if (string.IsNullOrWhiteSpace(response.ResponseBody))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(response.ResponseBody);
-            if (!document.RootElement.TryGetProperty("result", out var resultElement))
-            {
-                return null;
-            }
-
-            if (resultElement.ValueKind == JsonValueKind.Object &&
-                resultElement.TryGetProperty("message_id", out var messageIdElement) &&
-                messageIdElement.TryGetInt64(out var messageId))
-            {
-                return messageId;
-            }
-
-            if (resultElement.ValueKind == JsonValueKind.Array &&
-                resultElement.GetArrayLength() > 0)
-            {
-                var first = resultElement[0];
-                if (first.TryGetProperty("message_id", out var firstMessageIdElement) &&
-                    firstMessageIdElement.TryGetInt64(out var firstMessageId))
-                {
-                    return firstMessageId;
-                }
-            }
-        }
-        catch
-        {
-            // Ignore parsing errors and treat message id as unavailable.
-        }
-
-        return null;
     }
 
     private static PostMediaMetadata? ParseMetadata(string metadataJson) =>
@@ -1364,5 +1055,4 @@ public sealed class TelegramFeedDeliveryService(
         return true;
     }
 
-    private sealed record DeliveryDispatchResult(TelegramBotApiResultDto Result, long? DeliveredMessageId);
 }

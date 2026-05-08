@@ -15,8 +15,6 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
     public DbSet<CollectorAccount> CollectorAccounts => Set<CollectorAccount>();
     public DbSet<ChannelCollectorAssignment> ChannelCollectorAssignments => Set<ChannelCollectorAssignment>();
     public DbSet<TelegramPost> TelegramPosts => Set<TelegramPost>();
-    public DbSet<TelegramPostRevision> TelegramPostRevisions => Set<TelegramPostRevision>();
-    public DbSet<TelegramPostDelivery> TelegramPostDeliveries => Set<TelegramPostDelivery>();
     public DbSet<FactCheckRequest> FactCheckRequests => Set<FactCheckRequest>();
     public DbSet<SubscriptionPlanDefinition> SubscriptionPlanDefinitions => Set<SubscriptionPlanDefinition>();
     public DbSet<DonationOption> DonationOptions => Set<DonationOption>();
@@ -130,31 +128,8 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.OriginalPostUrl).HasMaxLength(1024);
             entity.Property(x => x.SourceKind).HasConversion<string>().HasMaxLength(64).HasDefaultValue(PostSourceKind.ChannelPost);
             entity.Property(x => x.MetadataJson).HasColumnType("jsonb");
-            entity.Property(x => x.IsEdited).HasDefaultValue(false);
             entity.HasOne(x => x.Channel).WithMany(x => x.Posts).HasForeignKey(x => x.ChannelId);
             entity.HasOne(x => x.CollectorAccount).WithMany().HasForeignKey(x => x.CollectorAccountId);
-        });
-
-        modelBuilder.Entity<TelegramPostRevision>(entity =>
-        {
-            entity.ToTable("telegram_post_revisions");
-            entity.HasIndex(x => new { x.PostId, x.RevisionNumber }).IsUnique();
-            entity.Property(x => x.RawText).HasColumnType("text");
-            entity.Property(x => x.NormalizedText).HasColumnType("text");
-            entity.Property(x => x.MediaGroupId).HasMaxLength(128);
-            entity.Property(x => x.OriginalPostUrl).HasMaxLength(1024);
-            entity.Property(x => x.MetadataJson).HasColumnType("jsonb");
-            entity.Property(x => x.IsEdited).HasDefaultValue(false);
-            entity.HasOne(x => x.Post).WithMany(x => x.Revisions).HasForeignKey(x => x.PostId);
-        });
-
-        modelBuilder.Entity<TelegramPostDelivery>(entity =>
-        {
-            entity.ToTable("telegram_post_deliveries");
-            entity.HasIndex(x => new { x.PostId, x.DestinationKind, x.DestinationChatId, x.RevisionNumber }).IsUnique();
-            entity.HasIndex(x => new { x.DestinationKind, x.DestinationChatId, x.DeliveredAtUtc });
-            entity.Property(x => x.DestinationKind).HasConversion<string>().HasMaxLength(32);
-            entity.HasOne(x => x.Post).WithMany(x => x.Deliveries).HasForeignKey(x => x.PostId);
         });
 
         modelBuilder.Entity<FactCheckRequest>(entity =>

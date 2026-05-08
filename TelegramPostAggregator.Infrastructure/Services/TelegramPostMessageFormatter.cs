@@ -22,14 +22,11 @@ public static class TelegramPostMessageFormatter
     public static IReadOnlyList<string> FormatMessageParts(string channelName, string rawText, string? originalPostUrl) =>
         SplitForTelegram(ComposeFullText(channelName, rawText, originalPostUrl), MessageTextLimit);
 
-    public static IReadOnlyList<string> FormatMessagePartsHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null) =>
-        FormatMessagePartsHtmlWithFooter(channelName, rawText, originalPostUrl, channelUrl);
-
-    public static IReadOnlyList<string> FormatMessagePartsHtmlWithFooter(string channelName, string rawText, string? footerText, string? channelUrl = null)
+    public static IReadOnlyList<string> FormatMessagePartsHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null)
     {
         var header = BuildHeaderHtml(channelName, channelUrl);
         var body = NormalizeMessageBody(rawText);
-        var footer = string.IsNullOrWhiteSpace(footerText) ? string.Empty : HtmlEncode(footerText.Trim());
+        var footer = string.IsNullOrWhiteSpace(originalPostUrl) ? string.Empty : HtmlEncode(originalPostUrl.Trim());
         var singleMessage = ComposeHtmlMessage(header, string.IsNullOrWhiteSpace(body) ? string.Empty : HtmlEncode(body), footer);
         if (singleMessage.Length <= MessageTextLimit)
         {
@@ -106,14 +103,11 @@ public static class TelegramPostMessageFormatter
             : $"{header}{BlockSeparator}{text}{footer}";
     }
 
-    public static CaptionRenderResult FormatCaptionPartsHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null) =>
-        FormatCaptionPartsHtmlWithFooter(channelName, rawText, originalPostUrl, channelUrl);
-
-    public static CaptionRenderResult FormatCaptionPartsHtmlWithFooter(string channelName, string rawText, string? footerText, string? channelUrl = null)
+    public static CaptionRenderResult FormatCaptionPartsHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null)
     {
         var header = BuildHeaderHtml(channelName, channelUrl);
         var body = NormalizeCaptionBody(rawText);
-        var footer = string.IsNullOrWhiteSpace(footerText) ? string.Empty : HtmlEncode(footerText.Trim());
+        var footer = string.IsNullOrWhiteSpace(originalPostUrl) ? string.Empty : HtmlEncode(originalPostUrl.Trim());
 
         if (string.IsNullOrWhiteSpace(body))
         {
@@ -147,12 +141,9 @@ public static class TelegramPostMessageFormatter
         return new CaptionRenderResult(caption, overflowMessages);
     }
 
-    public static CaptionRenderResult FormatMediaDeliveryHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null) =>
-        FormatMediaDeliveryHtmlWithFooter(channelName, rawText, originalPostUrl, channelUrl);
-
-    public static CaptionRenderResult FormatMediaDeliveryHtmlWithFooter(string channelName, string rawText, string? footerText, string? channelUrl = null)
+    public static CaptionRenderResult FormatMediaDeliveryHtml(string channelName, string rawText, string? originalPostUrl, string? channelUrl = null)
     {
-        var fullCaption = FormatCaptionPartsHtmlWithFooter(channelName, rawText, footerText, channelUrl);
+        var fullCaption = FormatCaptionPartsHtml(channelName, rawText, originalPostUrl, channelUrl);
         if (fullCaption.OverflowMessages.Count == 0)
         {
             return fullCaption;
@@ -161,7 +152,7 @@ public static class TelegramPostMessageFormatter
         var header = BuildHeaderHtml(channelName, channelUrl);
         return new CaptionRenderResult(
             header,
-            FormatMessagePartsHtmlWithFooter(channelName, rawText, footerText, channelUrl));
+            FormatMessagePartsHtml(channelName, rawText, originalPostUrl, channelUrl));
     }
 
     private static string ComposeFullText(string channelName, string rawText, string? originalPostUrl)

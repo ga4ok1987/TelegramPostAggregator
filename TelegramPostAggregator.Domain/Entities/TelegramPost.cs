@@ -22,9 +22,4 @@ public sealed class TelegramPost : BaseEntity
     public string? OriginalPostUrl { get; set; }
     public PostSourceKind SourceKind { get; set; } = PostSourceKind.ChannelPost;
     public string MetadataJson { get; set; } = "{}";
-    public bool IsEdited { get; set; }
-    public DateTimeOffset? TelegramEditDateUtc { get; set; }
-
-    public ICollection<TelegramPostRevision> Revisions { get; set; } = [];
-    public ICollection<TelegramPostDelivery> Deliveries { get; set; } = [];
 }
