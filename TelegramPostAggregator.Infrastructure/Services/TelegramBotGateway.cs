@@ -473,11 +473,12 @@ public sealed class TelegramBotGateway(
 
     private static async Task<TelegramBotApiResultDto> ToResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        var body = response.IsSuccessStatusCode
-            ? null
-            : await response.Content.ReadAsStringAsync(cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        return new TelegramBotApiResultDto(response.IsSuccessStatusCode, response.StatusCode, body);
+        return new TelegramBotApiResultDto(
+            response.IsSuccessStatusCode,
+            response.StatusCode,
+            string.IsNullOrWhiteSpace(body) ? null : body);
     }
 
     private static Dictionary<string, object?> CreateMediaPayload(TelegramBotMediaGroupItemDto item, string mediaReference)

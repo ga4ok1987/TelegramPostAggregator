@@ -132,6 +132,8 @@ public static class DependencyInjection
         services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
         services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
         services.AddScoped<IPostRepository, PostRepository>();
+        services.AddScoped<IPostRevisionRepository, PostRevisionRepository>();
+        services.AddScoped<IPostDeliveryRepository, PostDeliveryRepository>();
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
         services.AddScoped<ISubscriptionPlanRepository, SubscriptionPlanRepository>();
         services.AddScoped<IDonationOptionRepository, DonationOptionRepository>();
