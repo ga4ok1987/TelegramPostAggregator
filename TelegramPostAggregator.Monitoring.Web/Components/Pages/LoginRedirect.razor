@@ -19,7 +19,7 @@
     }
 
     <form method="post" action="/auth/login" class="login-form">
-        <input type="hidden" name="returnUrl" value="/" />
+        <input type="hidden" name="returnUrl" value="@ResolvedReturnUrl" />
 
         <label class="form-label" for="username">Username</label>
         <input class="form-input" id="username" name="username" type="text" autocomplete="username" required />
@@ -35,5 +35,10 @@
     [SupplyParameterFromQuery(Name = "error")]
     public string? ErrorFlag { get; set; }
 
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
     private bool HasError => !string.IsNullOrWhiteSpace(ErrorFlag);
+
+    private string ResolvedReturnUrl => string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl;
 }

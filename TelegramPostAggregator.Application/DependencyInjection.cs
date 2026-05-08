@@ -18,8 +18,13 @@ public static class DependencyInjection
         services.AddScoped<IChannelKeyNormalizer, ChannelKeyNormalizer>();
         services.AddScoped<ITextNormalizer, TextNormalizer>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IAdminAuthService, AdminAuthService>();
+        services.AddScoped<IAdminUserService, AdminUserService>();
+        services.AddScoped<IBillingService, BillingService>();
+        services.AddScoped<IBillingAdminService, BillingAdminService>();
         services.AddScoped<IChannelTrackingService, ChannelTrackingService>();
         services.AddScoped<IMiniAppChannelService, MiniAppChannelService>();
+        services.AddScoped<IClientAdminService, ClientAdminService>();
         services.AddScoped<IFeedService, FeedService>();
         services.AddScoped<IFactCheckService, FactCheckService>();
         services.AddScoped<ICollectorCoordinator, CollectorCoordinator>();
@@ -28,6 +33,7 @@ public static class DependencyInjection
         services.AddSingleton<BotLocalizationCatalog>();
         services.AddSingleton<BotMenuFactory>();
         services.AddSingleton<BotMessageCatalog>();
+        services.AddSingleton<AdminPasswordHasher>();
 
         return services;
     }

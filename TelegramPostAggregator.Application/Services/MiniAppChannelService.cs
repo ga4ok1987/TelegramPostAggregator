@@ -1,4 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Collections.Concurrent;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
@@ -13,11 +16,22 @@ public sealed class MiniAppChannelService(
     IAppUserRepository appUserRepository,
     IPostRepository postRepository,
     ITelegramBotGateway telegramBotGateway,
+    IServiceScopeFactory scopeFactory,
+    IErrorAlertService errorAlertService,
     Microsoft.Extensions.Logging.ILogger<MiniAppChannelService> logger) : IMiniAppChannelService
 {
+    private static readonly TimeSpan SharedChannelRequestCooldown = TimeSpan.FromSeconds(30);
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> SharedChannelRequestCooldowns = new();
+
     public async Task<IReadOnlyList<MiniAppChannelDto>> ListAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
         var channels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        if (channels.Count == 0)
+        {
+            return [];
+        }
+
+        channels = await ReconcileManagedChannelsAsync(channels, cancellationToken);
         if (channels.Count == 0)
         {
             return [];
@@ -31,15 +45,7 @@ public sealed class MiniAppChannelService(
                     .OrderBy(x => x.Channel.ChannelName)
                     .ToList());
 
-        var adminChecks = await Task.WhenAll(channels.Select(async channel => new
-        {
-            Channel = channel,
-            IsBotAdministrator = await telegramBotGateway.IsBotAdministratorAsync(channel.TelegramChatId.ToString(), cancellationToken)
-        }));
-
-        var visibleChannels = adminChecks
-            .Where(result => result.IsBotAdministrator)
-            .Select(result => result.Channel)
+        var visibleChannels = channels
             .OrderByDescending(channel => channel.IsActive)
             .ThenBy(channel => channel.ChannelName)
             .ToList();
@@ -50,8 +56,69 @@ public sealed class MiniAppChannelService(
         return channelDtos;
     }
 
+    private async Task<IReadOnlyList<ManagedChannel>> ReconcileManagedChannelsAsync(
+        IReadOnlyList<ManagedChannel> channels,
+        CancellationToken cancellationToken)
+    {
+        var visibleChannels = new List<ManagedChannel>(channels.Count);
+        var changed = false;
+
+        foreach (var channel in channels)
+        {
+            var stillAdministrator = await telegramBotGateway.IsBotAdministratorAsync(
+                channel.TelegramChatId.ToString(),
+                cancellationToken);
+
+            if (stillAdministrator)
+            {
+                if (!channel.IsActive || !string.IsNullOrWhiteSpace(channel.LastWriteError))
+                {
+                    channel.IsActive = true;
+                    channel.LastWriteError = null;
+                    channel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
+                    changed = true;
+                }
+
+                visibleChannels.Add(channel);
+                continue;
+            }
+
+            logger.LogInformation(
+                "Hiding managed channel because bot is no longer administrator. ManagedChannelId={ManagedChannelId}, ChatId={ChatId}",
+                channel.Id,
+                channel.TelegramChatId);
+
+            channel.IsActive = false;
+            channel.LastWriteError = "Bot is no longer an administrator in this channel.";
+            channel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await managedChannelRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        return visibleChannels;
+    }
+
     public async Task<ManagedChannelRegistrationResultDto> RegisterSharedChannelAsync(long telegramUserId, TelegramSharedChatDto sharedChat, CancellationToken cancellationToken = default)
     {
+        var dedupeKey = $"shared-channel:{telegramUserId}:{sharedChat.RequestId}:{sharedChat.ChatId}";
+        var now = DateTimeOffset.UtcNow;
+        if (SharedChannelRequestCooldowns.TryGetValue(dedupeKey, out var lastSeenAtUtc) &&
+            now - lastSeenAtUtc < SharedChannelRequestCooldown)
+        {
+            logger.LogInformation(
+                "Skipping duplicate shared channel registration request. TelegramUserId={TelegramUserId}, RequestId={RequestId}, SharedChatId={SharedChatId}",
+                telegramUserId,
+                sharedChat.RequestId,
+                sharedChat.ChatId);
+            return new ManagedChannelRegistrationResultDto(true, "Channel request is already being processed.");
+        }
+
+        SharedChannelRequestCooldowns[dedupeKey] = now;
+
         logger.LogInformation(
             "Registering shared channel. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}, Title={Title}, Username={Username}",
             telegramUserId,
@@ -63,17 +130,11 @@ public sealed class MiniAppChannelService(
         if (user is null)
         {
             logger.LogWarning("Shared channel registration aborted because app user was not found. TelegramUserId={TelegramUserId}", telegramUserId);
+            await errorAlertService.SendAsync(
+                "Managed channel registration aborted",
+                $"TelegramUserId: {telegramUserId}\nSharedChatId: {sharedChat.ChatId}\nReason: app user not found",
+                cancellationToken: cancellationToken);
             return new ManagedChannelRegistrationResultDto(false, "Start the bot first, then add your channel again.");
-        }
-
-        var isBotAdministrator = await telegramBotGateway.IsBotAdministratorAsync(sharedChat.ChatId.ToString(), cancellationToken);
-        if (!isBotAdministrator)
-        {
-            logger.LogWarning(
-                "Shared channel registration aborted because bot is not administrator. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}",
-                telegramUserId,
-                sharedChat.ChatId);
-            return new ManagedChannelRegistrationResultDto(false, "The bot is not an administrator in this channel yet.");
         }
 
         var existing = await managedChannelRepository.GetByTelegramChatIdAsync(user.Id, sharedChat.ChatId, cancellationToken);
@@ -91,38 +152,6 @@ public sealed class MiniAppChannelService(
         managedChannel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
         managedChannel.LastWriteError = null;
 
-        var probeResult = await telegramBotGateway.SendMessageAsync(
-            new TelegramBotOutboundMessageDto(
-                sharedChat.ChatId,
-                "Channels Monitor connected successfully.",
-                ParseMode: null,
-                DisableWebPagePreview: true),
-            cancellationToken);
-
-        managedChannel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
-
-        if (!probeResult.IsSuccessStatusCode)
-        {
-            logger.LogWarning(
-                "Shared channel registration probe failed. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}, Response={ResponseBody}",
-                telegramUserId,
-                sharedChat.ChatId,
-                probeResult.ResponseBody);
-            managedChannel.LastWriteError = probeResult.ResponseBody ?? "The bot could not post to this channel.";
-            managedChannel.IsActive = false;
-
-            if (existing is null)
-            {
-                await managedChannelRepository.AddAsync(managedChannel, cancellationToken);
-            }
-
-            await managedChannelRepository.SaveChangesAsync(cancellationToken);
-            return new ManagedChannelRegistrationResultDto(false, "The channel was found, but the bot could not post there.");
-        }
-
-        managedChannel.LastWriteSucceededAtUtc = DateTimeOffset.UtcNow;
-        managedChannel.LastWriteError = null;
-
         if (existing is null)
         {
             await managedChannelRepository.AddAsync(managedChannel, cancellationToken);
@@ -134,7 +163,79 @@ public sealed class MiniAppChannelService(
             telegramUserId,
             sharedChat.ChatId,
             managedChannel.Id);
-        return new ManagedChannelRegistrationResultDto(true, $"Channel connected: {managedChannel.ChannelName}");
+
+        _ = RunProbeInBackgroundAsync(managedChannel.Id, telegramUserId, sharedChat.ChatId);
+
+        return new ManagedChannelRegistrationResultDto(
+            true,
+            $"Канал додано: {managedChannel.ChannelName}. Якщо це щойно створений канал, додайте бота адміністратором і ще раз натисніть «Додати мій канал / додати адміна». Перевірочне повідомлення з’явиться трохи пізніше.");
+    }
+
+    public async Task<bool> SyncBotMembershipAsync(long telegramUserId, TelegramMyChatMemberDto membership, CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(membership.ChatType, "channel", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var user = await appUserRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        var normalizedStatus = membership.NewStatus?.Trim().ToLowerInvariant();
+        var isAdminStatus = normalizedStatus is "administrator" or "creator";
+        var isRemovedStatus = normalizedStatus is "left" or "kicked";
+        if (!isAdminStatus && !isRemovedStatus)
+        {
+            return false;
+        }
+
+        var managedChannel = await managedChannelRepository.GetByTelegramChatIdAsync(user.Id, membership.ChatId, cancellationToken);
+        if (managedChannel is null && !isAdminStatus)
+        {
+            return false;
+        }
+
+        if (managedChannel is null)
+        {
+            managedChannel = new ManagedChannel
+            {
+                UserId = user.Id,
+                TelegramChatId = membership.ChatId
+            };
+
+            await managedChannelRepository.AddAsync(managedChannel, cancellationToken);
+        }
+
+        managedChannel.ChannelName = !string.IsNullOrWhiteSpace(membership.Title)
+            ? membership.Title.Trim()
+            : managedChannel.ChannelName;
+        managedChannel.Username = NormalizeUsername(membership.Username) ?? managedChannel.Username;
+        managedChannel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
+
+        if (isAdminStatus)
+        {
+            managedChannel.IsActive = true;
+            managedChannel.LastWriteError = null;
+        }
+        else
+        {
+            managedChannel.IsActive = false;
+            managedChannel.LastWriteError = "Bot no longer has administrator access to this channel.";
+        }
+
+        await managedChannelRepository.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Synced bot membership for managed channel. TelegramUserId={TelegramUserId}, ChatId={ChatId}, NewStatus={NewStatus}, ManagedChannelId={ManagedChannelId}",
+            telegramUserId,
+            membership.ChatId,
+            membership.NewStatus,
+            managedChannel.Id);
+
+        return true;
     }
 
     public async Task<bool> SetActiveAsync(long telegramUserId, Guid channelId, bool isActive, CancellationToken cancellationToken = default)
@@ -187,6 +288,24 @@ public sealed class MiniAppChannelService(
         var target = channels.FirstOrDefault(channel => channel.Id == channelId);
         if (target is null)
         {
+            return false;
+        }
+
+        var leaveResult = await telegramBotGateway.LeaveChatAsync(target.TelegramChatId.ToString(), cancellationToken);
+        if (!leaveResult.IsSuccessStatusCode && !CanDeleteAfterLeaveFailure(leaveResult.ResponseBody))
+        {
+            logger.LogWarning(
+                "Failed to remove bot from managed channel before deletion. TelegramUserId={TelegramUserId}, ManagedChannelId={ManagedChannelId}, ChatId={ChatId}, Response={Response}",
+                telegramUserId,
+                target.Id,
+                target.TelegramChatId,
+                leaveResult.ResponseBody);
+
+            await errorAlertService.SendAsync(
+                "Managed channel delete failed",
+                $"TelegramUserId: {telegramUserId}\nManagedChannelId: {target.Id}\nChatId: {target.TelegramChatId}\nResponse: {leaveResult.ResponseBody}",
+                cancellationToken: cancellationToken);
+
             return false;
         }
 
@@ -328,4 +447,98 @@ public sealed class MiniAppChannelService(
 
         return reference;
     }
+
+    private Task<TelegramBotApiResultDto> SendProbeMessageAsync(long chatId, CancellationToken cancellationToken) =>
+        telegramBotGateway.SendMessageAsync(
+            new TelegramBotOutboundMessageDto(
+                chatId,
+                "Channels Monitor connected successfully.",
+                ParseMode: null,
+                DisableWebPagePreview: true),
+            cancellationToken);
+
+    private static bool IsPermanentWriteFailure(TelegramBotApiResultDto result) =>
+        result.StatusCode != HttpStatusCode.TooManyRequests;
+
+    private static bool IsAdminRightsIssue(string? responseBody) =>
+        !string.IsNullOrWhiteSpace(responseBody) &&
+        (responseBody.Contains("bot was kicked", StringComparison.OrdinalIgnoreCase) ||
+         responseBody.Contains("not enough rights", StringComparison.OrdinalIgnoreCase) ||
+         responseBody.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+         responseBody.Contains("forbidden", StringComparison.OrdinalIgnoreCase));
+
+    private static bool CanDeleteAfterLeaveFailure(string? responseBody) =>
+        !string.IsNullOrWhiteSpace(responseBody) &&
+        (responseBody.Contains("bot is not a member", StringComparison.OrdinalIgnoreCase) ||
+         responseBody.Contains("chat not found", StringComparison.OrdinalIgnoreCase) ||
+         responseBody.Contains("bot was kicked", StringComparison.OrdinalIgnoreCase));
+
+    private async Task RunProbeInBackgroundAsync(Guid managedChannelId, long telegramUserId, long sharedChatId)
+    {
+        try
+        {
+            var probeResult = await SendProbeMessageAsync(sharedChatId, CancellationToken.None);
+
+            using var scope = scopeFactory.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IManagedChannelRepository>();
+            var managedChannel = await repository.GetByIdAsync(managedChannelId, CancellationToken.None);
+            if (managedChannel is null)
+            {
+                return;
+            }
+
+            managedChannel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
+            if (probeResult.IsSuccessStatusCode)
+            {
+                managedChannel.LastWriteSucceededAtUtc = DateTimeOffset.UtcNow;
+                managedChannel.LastWriteError = null;
+                managedChannel.IsActive = true;
+            }
+            else
+            {
+                managedChannel.LastWriteError = probeResult.ResponseBody ?? "The bot could not post to this channel.";
+                if (IsPermanentWriteFailure(probeResult))
+                {
+                    managedChannel.IsActive = false;
+                }
+
+                logger.LogWarning(
+                    "Shared channel background probe failed. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}, Response={ResponseBody}",
+                    telegramUserId,
+                    sharedChatId,
+                    probeResult.ResponseBody);
+                if (IsAdminRightsIssue(probeResult.ResponseBody))
+                {
+                    await telegramBotGateway.SendMessageAsync(
+                        new TelegramBotOutboundMessageDto(
+                            telegramUserId,
+                            "Telegram повідомив, що бот ще не є адміністратором цього каналу. Додайте бота адміністратором і ще раз натисніть «Додати мій канал / додати адміна».",
+                            ParseMode: null,
+                            DisableWebPagePreview: true),
+                        CancellationToken.None);
+                }
+
+                await errorAlertService.SendAsync(
+                    "Managed channel verification failed",
+                    $"TelegramUserId: {telegramUserId}\nSharedChatId: {sharedChatId}\nResponse: {probeResult.ResponseBody}",
+                    cancellationToken: CancellationToken.None);
+            }
+
+            await repository.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Shared channel background probe failed unexpectedly. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}",
+                telegramUserId,
+                sharedChatId);
+            await errorAlertService.SendAsync(
+                "Managed channel verification crashed",
+                $"TelegramUserId: {telegramUserId}\nSharedChatId: {sharedChatId}",
+                exception,
+                CancellationToken.None);
+        }
+    }
+
 }

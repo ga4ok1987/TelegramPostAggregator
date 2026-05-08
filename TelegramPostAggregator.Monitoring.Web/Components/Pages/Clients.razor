@@ -1,0 +1,377 @@
+@page "/clients-legacy"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ViewModels.ClientAdminViewModel ViewModel
+
+<PageTitle>Clients</PageTitle>
+
+<section class="hero-panel">
+    <div>
+        <p class="eyebrow">Admin panel</p>
+        <h2>Clients and managed channels</h2>
+        <p class="hero-copy">
+            This page is isolated from the mini app and shows bot clients, their channels, and quick moderation controls.
+        </p>
+    </div>
+    <button class="refresh-button" @onclick="RefreshAsync" disabled="@ViewModel.IsLoading">
+        @(ViewModel.IsLoading ? "Refreshing..." : "Refresh clients")
+    </button>
+</section>
+
+<section class="toolbar-panel">
+    <input class="form-input search-input"
+           @bind="ViewModel.SearchTerm"
+           @bind:event="oninput"
+           @bind:after="HandleSearchChanged"
+           placeholder="Search by name, username, Telegram ID, or channel" />
+</section>
+
+@if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+{
+    <section class="status-banner error-banner">
+        <strong>Client panel error.</strong>
+        <span>@ViewModel.ErrorMessage</span>
+    </section>
+}
+else if (ViewModel.IsLoading && ViewModel.Clients.Count == 0)
+{
+    <section class="status-banner">
+        Loading clients...
+    </section>
+}
+else if (!ViewModel.FilteredClients.Any())
+{
+    <section class="status-banner">
+        No clients matched the current filter.
+    </section>
+}
+else
+{
+    <section class="clients-layout">
+        <aside class="client-list-panel">
+            <div class="client-list-header">
+                <p class="eyebrow">Clients</p>
+                <strong>@ViewModel.FilteredClients.Count</strong>
+            </div>
+
+            <div class="client-list">
+                @foreach (var client in ViewModel.FilteredClients)
+                {
+                    var isSelected = ViewModel.SelectedUserId == client.UserId;
+                    <button class="client-list-item @(isSelected ? "selected" : null)"
+                            type="button"
+                            @onclick="() => SelectClientAsync(client.UserId)">
+                        <div class="client-list-item-top">
+                            <strong>@client.DisplayName</strong>
+                            <span class="state-pill @(client.IsBlockedBot ? "offline" : "healthy")">
+                                @(client.IsBlockedBot ? "Blocked" : "Active")
+                            </span>
+                        </div>
+                        <p>@(string.IsNullOrWhiteSpace(client.TelegramUsername) ? "No username" : "@"+client.TelegramUsername.TrimStart('@'))</p>
+                        <div class="client-list-item-meta">
+                            <span>@client.ManagedChannelsCount channels</span>
+                            <span>@client.TotalSubscriptionsCount subscriptions</span>
+                        </div>
+                    </button>
+                }
+            </div>
+        </aside>
+
+        @if (ViewModel.IsLoadingDetail)
+        {
+            <article class="client-detail-panel">
+                <section class="status-banner">
+                    Loading client details...
+                </section>
+            </article>
+        }
+        else if (ViewModel.SelectedClientDetail is { } selectedClient)
+        {
+            var isBusy = ViewModel.BusyUserId == selectedClient.UserId;
+            <article class="client-detail-panel">
+                <div class="client-card-header">
+                    <div>
+                        <div class="state-pill @(selectedClient.IsBlockedBot ? "offline" : "healthy")">
+                            @(selectedClient.IsBlockedBot ? "Blocked" : "Active")
+                        </div>
+                        <h3>@selectedClient.DisplayName</h3>
+                        <p class="client-reference">
+                            <span>@(string.IsNullOrWhiteSpace(selectedClient.TelegramUsername) ? "No username" : "@"+selectedClient.TelegramUsername.TrimStart('@'))</span>
+                            <span>Telegram ID: @selectedClient.TelegramUserId</span>
+                        </p>
+                    </div>
+                    <button class="secondary-link admin-toggle" @onclick="() => ToggleBlockedAsync(selectedClient.UserId, selectedClient.IsBlockedBot)" disabled="@isBusy">
+                        @(isBusy ? "Saving..." : selectedClient.IsBlockedBot ? "Unblock bot access" : "Block bot access")
+                    </button>
+                </div>
+
+                <section class="client-stats">
+                    <div>
+                        <dt>Language</dt>
+                        <dd>@selectedClient.PreferredLanguageCode</dd>
+                    </div>
+                    <div>
+                        <dt>Joined</dt>
+                        <dd>@selectedClient.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</dd>
+                    </div>
+                    <div>
+                        <dt>Channels</dt>
+                        <dd>@selectedClient.ActiveManagedChannelsCount / @selectedClient.ManagedChannelsCount active</dd>
+                    </div>
+                    <div>
+                        <dt>Bot subscriptions</dt>
+                        <dd>@selectedClient.ActiveBotSubscriptionsCount / @selectedClient.BotSubscriptionsCount active</dd>
+                    </div>
+                    <div>
+                        <dt>Channel subscriptions</dt>
+                        <dd>@selectedClient.ActiveManagedChannelSubscriptionsCount / @selectedClient.TotalManagedChannelSubscriptionsCount active</dd>
+                    </div>
+                </section>
+
+                <section class="channel-section">
+                    <div class="section-heading">
+                        <h3>Bot subscriptions</h3>
+                        <button class="secondary-link slim-toggle"
+                                type="button"
+                                @onclick="ToggleBotSubscriptionsAsync">
+                            @(ViewModel.IsBotSubscriptionsExpanded ? "Hide list" : $"Show list ({selectedClient.BotSubscriptionsCount})")
+                        </button>
+                    </div>
+
+                    @if (selectedClient.BotSubscriptionsCount == 0)
+                    {
+                        <div class="details-box">This user has no direct subscriptions in the bot.</div>
+                    }
+                    else if (ViewModel.IsBotSubscriptionsExpanded)
+                    {
+                        @if (ViewModel.IsLoadingBotSubscriptions)
+                        {
+                            <div class="details-box">Loading bot subscriptions...</div>
+                        }
+                        else if (ViewModel.BotSubscriptionsPage is { } botSubscriptionsPage)
+                        {
+                            <div class="channel-admin-list">
+                                @foreach (var subscription in botSubscriptionsPage.Items)
+                                {
+                                    <article class="channel-admin-card">
+                                        <div class="channel-admin-row">
+                                            <div>
+                                                <strong>@subscription.ChannelName</strong>
+                                                <p>@subscription.ChannelReference</p>
+                                            </div>
+                                            <div class="channel-admin-meta">
+                                                <span class="state-pill @(subscription.IsActive ? "healthy" : "unknown")">
+                                                    @(subscription.IsActive ? "Active" : "Paused")
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <dl class="channel-stats">
+                                            <div>
+                                                <dt>Type</dt>
+                                                <dd>Direct bot subscription</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Last delivered</dt>
+                                                <dd>@(subscription.LastDeliveredAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "No data")</dd>
+                                            </div>
+                                        </dl>
+                                    </article>
+                                }
+                            </div>
+
+                            <div class="pager-row">
+                                <button class="secondary-link pager-button"
+                                        type="button"
+                                        disabled="@(botSubscriptionsPage.Page <= 1)"
+                                        @onclick="() => ChangeBotSubscriptionsPageAsync(botSubscriptionsPage.Page - 1)">
+                                    Previous
+                                </button>
+                                <span>Page @botSubscriptionsPage.Page of @GetTotalPages(botSubscriptionsPage.TotalCount, botSubscriptionsPage.PageSize)</span>
+                                <button class="secondary-link pager-button"
+                                        type="button"
+                                        disabled="@(botSubscriptionsPage.Page >= GetTotalPages(botSubscriptionsPage.TotalCount, botSubscriptionsPage.PageSize))"
+                                        @onclick="() => ChangeBotSubscriptionsPageAsync(botSubscriptionsPage.Page + 1)">
+                                    Next
+                                </button>
+                            </div>
+                        }
+                    }
+                </section>
+
+                <section class="channel-section">
+                    <div class="section-heading">
+                        <h3>Owned channels</h3>
+                        <span>@selectedClient.ManagedChannelsCount total</span>
+                    </div>
+
+                    @if (selectedClient.ManagedChannels.Count == 0)
+                    {
+                        <div class="details-box">This client has no managed channels yet.</div>
+                    }
+                    else
+                    {
+                        <div class="channel-admin-list">
+                            @foreach (var channel in selectedClient.ManagedChannels)
+                            {
+                                var isExpanded = ViewModel.ExpandedManagedChannelId == channel.ManagedChannelId;
+                                <article class="channel-admin-card">
+                                    <div class="channel-admin-row">
+                                        <div>
+                                            <strong>@channel.ChannelName</strong>
+                                            <p>@channel.ChannelReference</p>
+                                        </div>
+                                        <div class="channel-admin-meta">
+                                            <span class="state-pill @(channel.IsActive ? "healthy" : "unknown")">
+                                                @(channel.IsActive ? "Running" : "Paused")
+                                            </span>
+                                            <button class="secondary-link slim-toggle"
+                                                    type="button"
+                                                    @onclick="() => ToggleManagedChannelSubscriptionsAsync(channel.ManagedChannelId)">
+                                                @(isExpanded ? "Hide subscriptions" : $"Show subscriptions ({channel.SubscriptionCount})")
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <dl class="channel-stats">
+                                        <div>
+                                            <dt>Subscriptions via bot</dt>
+                                            <dd>@channel.SubscriptionCount</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Active via bot</dt>
+                                            <dd>@channel.ActiveSubscriptionCount</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Last success</dt>
+                                            <dd>@(channel.LastWriteSucceededAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "No data")</dd>
+                                        </div>
+                                    </dl>
+
+                                    @if (isExpanded)
+                                    {
+                                        @if (ViewModel.IsLoadingManagedChannelSubscriptions)
+                                        {
+                                            <div class="details-box">Loading channel subscriptions...</div>
+                                        }
+                                        else if (ViewModel.ManagedChannelSubscriptionsPage is { } managedChannelSubscriptionsPage)
+                                        {
+                                            @if (managedChannelSubscriptionsPage.Items.Count == 0)
+                                            {
+                                                <div class="details-box">This channel has no source subscriptions.</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="nested-subscriptions">
+                                                    @foreach (var subscription in managedChannelSubscriptionsPage.Items)
+                                                    {
+                                                        <div class="nested-subscription-row">
+                                                            <div>
+                                                                <strong>@subscription.ChannelName</strong>
+                                                                <p>@subscription.ChannelReference</p>
+                                                            </div>
+                                                            <div class="channel-admin-meta">
+                                                                <span class="state-pill @(subscription.IsActive ? "healthy" : "unknown")">
+                                                                    @(subscription.IsActive ? "Active" : "Paused")
+                                                                </span>
+                                                                <span>@(subscription.LastDeliveredAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "No delivery yet")</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+
+                                                <div class="pager-row">
+                                                    <button class="secondary-link pager-button"
+                                                            type="button"
+                                                            disabled="@(managedChannelSubscriptionsPage.Page <= 1)"
+                                                            @onclick="() => ChangeManagedChannelSubscriptionsPageAsync(managedChannelSubscriptionsPage.Page - 1)">
+                                                        Previous
+                                                    </button>
+                                                    <span>Page @managedChannelSubscriptionsPage.Page of @GetTotalPages(managedChannelSubscriptionsPage.TotalCount, managedChannelSubscriptionsPage.PageSize)</span>
+                                                    <button class="secondary-link pager-button"
+                                                            type="button"
+                                                            disabled="@(managedChannelSubscriptionsPage.Page >= GetTotalPages(managedChannelSubscriptionsPage.TotalCount, managedChannelSubscriptionsPage.PageSize))"
+                                                            @onclick="() => ChangeManagedChannelSubscriptionsPageAsync(managedChannelSubscriptionsPage.Page + 1)">
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            }
+                                        }
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(channel.LastWriteError))
+                                    {
+                                        <div class="channel-admin-error">@channel.LastWriteError</div>
+                                    }
+                                </article>
+                            }
+                        </div>
+                    }
+                </section>
+            </article>
+        }
+    </section>
+}
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        await ViewModel.RefreshAsync();
+    }
+
+    private Task HandleSearchChanged()
+    {
+        var firstVisibleClient = ViewModel.FilteredClients.FirstOrDefault();
+        if (firstVisibleClient is not null && ViewModel.SelectedClient is null)
+        {
+            return SelectClientAsync(firstVisibleClient.UserId);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task SelectClientAsync(Guid userId)
+    {
+        await ViewModel.SelectClientAsync(userId);
+    }
+
+    private async Task ToggleBotSubscriptionsAsync()
+    {
+        await ViewModel.ToggleBotSubscriptionsAsync();
+    }
+
+    private async Task ChangeBotSubscriptionsPageAsync(int page)
+    {
+        await ViewModel.LoadBotSubscriptionsPageAsync(page);
+    }
+
+    private async Task ToggleManagedChannelSubscriptionsAsync(Guid managedChannelId)
+    {
+        await ViewModel.ToggleManagedChannelSubscriptionsAsync(managedChannelId);
+    }
+
+    private async Task ChangeManagedChannelSubscriptionsPageAsync(int page)
+    {
+        await ViewModel.LoadManagedChannelSubscriptionsPageAsync(page);
+    }
+
+    private static int GetTotalPages(int totalCount, int pageSize)
+    {
+        if (pageSize <= 0)
+        {
+            return 1;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+    }
+
+    private async Task ToggleBlockedAsync(Guid userId, bool isBlocked)
+    {
+        await ViewModel.SetBlockedAsync(userId, !isBlocked);
+    }
+}

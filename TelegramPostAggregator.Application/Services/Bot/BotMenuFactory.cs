@@ -17,7 +17,7 @@ public sealed class BotMenuFactory(
         {
             new List<BotButtonDto> { new(locale.StartLabel), new(locale.StopLabel) },
             new List<BotButtonDto> { new(locale.ListLabel) },
-            new List<BotButtonDto> { new(localizationCatalog.ManagedChannelsButtonLabel, RequestChat: BuildManagedChannelsRequest()) },
+            new List<BotButtonDto> { new(localizationCatalog.PlansButtonLabel), new(localizationCatalog.SupportProjectButtonLabel) },
             new List<BotButtonDto> { new(localizationCatalog.FaqButtonLabel) },
             new List<BotButtonDto> { new(locale.DeleteAllLabel) }
         };
@@ -90,20 +90,30 @@ public sealed class BotMenuFactory(
         return new BotReplyMarkupDto(buttons, IsInline: true);
     }
 
-    private static BotButtonRequestChatDto BuildManagedChannelsRequest() =>
-        new(
-            RequestId: 1001,
-            ChatIsChannel: true,
-            RequestTitle: true,
-            RequestUsername: true,
-            BotIsMember: true,
-            UserAdministratorRights: new BotChatAdministratorRightsDto(
-                CanManageChat: true,
-                CanInviteUsers: true,
-                CanPostMessages: true,
-                CanEditMessages: true),
-            BotAdministratorRights: new BotChatAdministratorRightsDto(
-                CanManageChat: true,
-                CanPostMessages: true,
-                CanEditMessages: true));
+    public BotReplyMarkupDto BuildPlansMenu(IReadOnlyList<SubscriptionPlanDefinitionDto> plans, string languageCode)
+    {
+        var buttons = plans
+            .Select(plan =>
+            {
+                var priceLabel = plan.PriceStars <= 0 ? "free" : $"{plan.PriceStars}⭐/30d";
+                return (IReadOnlyList<BotButtonDto>)[new BotButtonDto($"{plan.DisplayName} - {priceLabel}", $"billing:plan:{plan.Code}")];
+            })
+            .ToList();
+
+        buttons.Add([new BotButtonDto(localizationCatalog.GetLocale(languageCode).CancelLabel, "action:cancel")]);
+        return new BotReplyMarkupDto(buttons, IsInline: true);
+    }
+
+    public BotReplyMarkupDto BuildSupportMenu(IReadOnlyList<DonationOptionDto> donations, string languageCode)
+    {
+        var buttons = donations
+            .Select(donation => new BotButtonDto($"{donation.StarsAmount}⭐", $"billing:donation:{donation.Code}"))
+            .Chunk(3)
+            .Select(chunk => (IReadOnlyList<BotButtonDto>)chunk.ToList())
+            .ToList();
+
+        buttons.Add([new BotButtonDto(localizationCatalog.GetLocale(languageCode).CancelLabel, "action:cancel")]);
+        return new BotReplyMarkupDto(buttons, IsInline: true);
+    }
+
 }

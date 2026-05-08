@@ -8,6 +8,8 @@ public interface ITelegramBotGateway
 
     Task<TelegramBotApiResultDto> SendMessageAsync(TelegramBotOutboundMessageDto message, CancellationToken cancellationToken = default);
 
+    Task<TelegramBotApiResultDto> SendInvoiceAsync(TelegramBotInvoiceDto invoice, CancellationToken cancellationToken = default);
+
     Task<TelegramBotApiResultDto> SendPhotoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default);
 
     Task<TelegramBotApiResultDto> SendVideoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default);
@@ -26,7 +28,11 @@ public interface ITelegramBotGateway
 
     Task<TelegramBotApiResultDto> AnswerCallbackQueryAsync(string callbackQueryId, string? text, CancellationToken cancellationToken = default);
 
+    Task<TelegramBotApiResultDto> AnswerPreCheckoutQueryAsync(string preCheckoutQueryId, bool ok, string? errorMessage, CancellationToken cancellationToken = default);
+
     Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default);
+
+    Task<TelegramBotApiResultDto> LeaveChatAsync(string telegramChannelId, CancellationToken cancellationToken = default);
 
     Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default);
 

@@ -19,14 +19,7 @@
             <p>@CurrentSubtitle</p>
         </div>
 
-        @if (ActiveTab == MiniAppTab.Channels)
-        {
-            <button class="icon-button accent" type="button" @onclick="ShowAddChannelHintAsync" aria-label="Add channel">+</button>
-        }
-        else
-        {
-            <div class="icon-button ghost"></div>
-        }
+        <div class="icon-button ghost"></div>
     </header>
 
     @if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
@@ -60,12 +53,11 @@
                     case MiniAppTab.Channels:
                         <section class="miniapp-stack">
                             <article class="miniapp-copy-block">
-                                <p>Manage your private channels and their status</p>
-                                <div class="miniapp-copy-actions">
+                                <div class="miniapp-section-head">
+                                    <h3>Список власних каналів</h3>
                                     <button class="secondary-action slim" type="button" @onclick="RefreshAsync" disabled="@ViewModel.IsRefreshing">
-                                        @(ViewModel.IsRefreshing ? "Refreshing..." : "Refresh list")
+                                        @(ViewModel.IsRefreshing ? "Оновлення..." : "Оновити")
                                     </button>
-                                    <button class="secondary-action slim" type="button" @onclick="ShowAddChannelHintAsync">How to add</button>
                                 </div>
                             </article>
 
@@ -73,8 +65,8 @@
                             {
                                 <article class="miniapp-panel empty-state">
                                     <h3>No channels yet</h3>
-                                    <p>Add the bot as an admin in your private channel, then tap the channel picker in the bot chat and refresh this list.</p>
-                                    <button class="primary-action" type="button" @onclick="ShowAddChannelHintAsync">What to do</button>
+                                    <p>Channels where the bot is already an admin appear here automatically. After you add the bot as an admin in Telegram, tap refresh.</p>
+                                    <button class="primary-action" type="button" @onclick="RefreshAsync">Refresh list</button>
                                 </article>
                             }
                             else
@@ -233,11 +225,11 @@
                                 <div class="faq-list">
                                     <section class="faq-item">
                                         <h4>1. Connect your own channel</h4>
-                                        <p>Add the bot as an administrator in your channel, then open the bot chat and press <strong>Add my channel</strong>. After that, come back here and refresh the list.</p>
+                                        <p>Add the bot as an administrator in your channel in Telegram. As soon as the bot has admin access, the channel appears here automatically after refresh.</p>
                                     </section>
                                     <section class="faq-item">
                                         <h4>2. What appears in this list</h4>
-                                        <p>Only channels you explicitly shared with the bot are shown here. If a channel is missing, share it again through <strong>Add my channel</strong>.</p>
+                                        <p>This list shows channels where the bot is already an administrator. If a channel is missing, first make sure the bot still has admin rights there, then refresh the list.</p>
                                     </section>
                                     <section class="faq-item">
                                         <h4>3. How to add subscriptions into your channel</h4>
@@ -440,9 +432,6 @@
 
     private Task OpenDrawerAsync() =>
         ViewModel.ShowPlaceholderAsync("Mini App navigation drawer is reserved for future sections.").AsTask();
-
-    private Task ShowAddChannelHintAsync() =>
-        ViewModel.ShowPlaceholderAsync("Make the bot an admin in your private channel first, then use the Add my channel button in the bot chat. It will appear here after refresh.").AsTask();
 
     private static string GetStatusLabel(MiniAppChannelDto channel) =>
         channel.IsActive ? "Active" : "Stopped";

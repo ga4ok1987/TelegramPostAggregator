@@ -7,15 +7,36 @@ namespace TelegramPostAggregator.Infrastructure.Repositories;
 
 public sealed class SubscriptionRepository(AggregatorDbContext dbContext) : ISubscriptionRepository
 {
+    public Task<UserChannelSubscription?> GetByIdAsync(Guid subscriptionId, CancellationToken cancellationToken = default) =>
+        dbContext.UserChannelSubscriptions
+            .Include(x => x.User)
+            .Include(x => x.Channel)
+            .FirstOrDefaultAsync(x => x.Id == subscriptionId, cancellationToken);
+
     public Task<UserChannelSubscription?> GetAsync(Guid userId, Guid channelId, CancellationToken cancellationToken = default) =>
         dbContext.UserChannelSubscriptions.FirstOrDefaultAsync(x => x.UserId == userId && x.ChannelId == channelId, cancellationToken);
+
+    public Task<int> CountByUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        dbContext.UserChannelSubscriptions.CountAsync(x => x.UserId == userId, cancellationToken);
+
+    public async Task<IReadOnlyList<UserChannelSubscription>> GetPageByUserIdAsync(Guid userId, int skip, int take, CancellationToken cancellationToken = default) =>
+        await dbContext.UserChannelSubscriptions
+            .AsNoTracking()
+            .Include(x => x.Channel)
+            .Where(x => x.UserId == userId)
+            .OrderByDescending(x => x.IsActive)
+            .ThenBy(x => x.Channel.ChannelName)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<UserChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
         await dbContext.UserChannelSubscriptions
             .Include(x => x.Channel)
             .Include(x => x.User)
             .Where(x => x.User.TelegramUserId == telegramUserId)
-            .OrderBy(x => x.Channel.ChannelName)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ThenBy(x => x.Channel.ChannelName)
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>

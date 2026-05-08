@@ -4,6 +4,7 @@ namespace TelegramPostAggregator.Application.Abstractions.Repositories;
 
 public interface IManagedChannelRepository
 {
+    Task<ManagedChannel?> GetByIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default);
     Task<ManagedChannel?> GetAsync(Guid userId, Guid managedChannelId, CancellationToken cancellationToken = default);
     Task<ManagedChannel?> GetByTelegramChatIdAsync(long telegramChatId, CancellationToken cancellationToken = default);
     Task<ManagedChannel?> GetByTelegramChatIdAsync(Guid userId, long telegramChatId, CancellationToken cancellationToken = default);

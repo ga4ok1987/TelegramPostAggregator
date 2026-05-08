@@ -76,9 +76,13 @@ public sealed class TdLibRealtimePostIngestionService(
             };
 
             await postRepository.AddAsync(post, cancellationToken);
+            channel.LastPostCollectedAtUtc = DateTimeOffset.UtcNow;
+            channel.LastCollectorError = null;
+            channel.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await postRepository.SaveChangesAsync(cancellationToken);
+            await channelRepository.SaveChangesAsync(cancellationToken);
 
-            logger.LogInformation(
+            logger.LogTrace(
                 "Realtime post ingested for channel {ChannelName}: messageId={TelegramMessageId}, albumId={MediaGroupId}",
                 channel.ChannelName,
                 message.Id,

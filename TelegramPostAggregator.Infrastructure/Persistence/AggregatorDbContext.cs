@@ -7,6 +7,7 @@ namespace TelegramPostAggregator.Infrastructure.Persistence;
 public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> options) : DbContext(options)
 {
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
     public DbSet<TrackedChannel> TrackedChannels => Set<TrackedChannel>();
     public DbSet<UserChannelSubscription> UserChannelSubscriptions => Set<UserChannelSubscription>();
     public DbSet<ManagedChannel> ManagedChannels => Set<ManagedChannel>();
@@ -15,6 +16,9 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
     public DbSet<ChannelCollectorAssignment> ChannelCollectorAssignments => Set<ChannelCollectorAssignment>();
     public DbSet<TelegramPost> TelegramPosts => Set<TelegramPost>();
     public DbSet<FactCheckRequest> FactCheckRequests => Set<FactCheckRequest>();
+    public DbSet<SubscriptionPlanDefinition> SubscriptionPlanDefinitions => Set<SubscriptionPlanDefinition>();
+    public DbSet<DonationOption> DonationOptions => Set<DonationOption>();
+    public DbSet<SubscriptionPaymentTransaction> SubscriptionPaymentTransactions => Set<SubscriptionPaymentTransaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -36,6 +40,18 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.TelegramUsername).HasMaxLength(128);
             entity.Property(x => x.DisplayName).HasMaxLength(256);
             entity.Property(x => x.PreferredLanguageCode).HasMaxLength(16);
+            entity.Property(x => x.SubscriptionPlanCode).HasMaxLength(64).HasDefaultValue("free");
+            entity.Property(x => x.ExtraSubscriptionSlots).HasDefaultValue(0);
+        });
+
+        modelBuilder.Entity<AdminUser>(entity =>
+        {
+            entity.ToTable("admin_users");
+            entity.HasIndex(x => x.NormalizedUsername).IsUnique();
+            entity.Property(x => x.Username).HasMaxLength(128);
+            entity.Property(x => x.NormalizedUsername).HasMaxLength(128);
+            entity.Property(x => x.DisplayName).HasMaxLength(256);
+            entity.Property(x => x.PasswordHash).HasMaxLength(512);
         });
 
         modelBuilder.Entity<TrackedChannel>(entity =>
@@ -67,7 +83,7 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.ChannelName).HasMaxLength(256);
             entity.Property(x => x.Username).HasMaxLength(256);
             entity.Property(x => x.LastWriteError).HasMaxLength(2048);
-            entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+            entity.HasOne(x => x.User).WithMany(x => x.ManagedChannels).HasForeignKey(x => x.UserId);
         });
 
         modelBuilder.Entity<ManagedChannelSubscription>(entity =>
@@ -130,6 +146,40 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.CredibilityScore).HasPrecision(5, 2);
             entity.HasOne(x => x.Post).WithMany().HasForeignKey(x => x.PostId);
             entity.HasOne(x => x.RequestedByUser).WithMany(x => x.FactCheckRequests).HasForeignKey(x => x.RequestedByUserId);
+        });
+
+        modelBuilder.Entity<SubscriptionPlanDefinition>(entity =>
+        {
+            entity.ToTable("subscription_plan_definitions");
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(64);
+            entity.Property(x => x.DisplayName).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<DonationOption>(entity =>
+        {
+            entity.ToTable("donation_options");
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(64);
+            entity.Property(x => x.DisplayName).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<SubscriptionPaymentTransaction>(entity =>
+        {
+            entity.ToTable("subscription_payment_transactions");
+            entity.HasIndex(x => x.PayloadToken).IsUnique();
+            entity.HasIndex(x => x.TelegramPaymentChargeId).IsUnique();
+            entity.Property(x => x.Type).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.PayloadToken).HasMaxLength(128);
+            entity.Property(x => x.CurrencyCode).HasMaxLength(16);
+            entity.Property(x => x.PlanCode).HasMaxLength(64);
+            entity.Property(x => x.DonationCode).HasMaxLength(64);
+            entity.Property(x => x.Title).HasMaxLength(128);
+            entity.Property(x => x.Description).HasMaxLength(255);
+            entity.Property(x => x.TelegramPaymentChargeId).HasMaxLength(256);
+            entity.Property(x => x.FailureReason).HasMaxLength(512);
+            entity.HasOne(x => x.User).WithMany(x => x.PaymentTransactions).HasForeignKey(x => x.UserId);
         });
     }
 }

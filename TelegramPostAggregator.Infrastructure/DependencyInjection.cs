@@ -31,14 +31,7 @@ public static class DependencyInjection
         services.AddDbContext<AggregatorDbContext>(options =>
             options.UseNpgsql(connectionString, builder => builder.MigrationsAssembly(typeof(AggregatorDbContext).Assembly.FullName)));
 
-        services.AddScoped<IAppUserRepository, AppUserRepository>();
-        services.AddScoped<ITrackedChannelRepository, TrackedChannelRepository>();
-        services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
-        services.AddScoped<IManagedChannelRepository, ManagedChannelRepository>();
-        services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
-        services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
-        services.AddScoped<IPostRepository, PostRepository>();
-        services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
+        RegisterRepositories(services);
 
         services.AddSingleton<TdLibCollectorClientManager>();
         services.AddSingleton<IImmediateDeliverySignal, ImmediateDeliverySignal>();
@@ -46,7 +39,7 @@ public static class DependencyInjection
         services.AddHostedService<TdLibCollectorHostedService>();
         services.AddHttpClient(nameof(TelegramBotPollingService));
         services.AddHttpClient(nameof(TelegramFeedDeliveryService));
-        services.AddHttpClient(nameof(TelegramBotGateway));
+        services.AddHttpClient(nameof(TelegramBotGateway), client => client.Timeout = TimeSpan.FromMinutes(3));
         services.AddHttpClient(nameof(TelegramErrorAlertService));
         services.AddHostedService<TelegramBotPollingService>();
         services.AddHostedService<TelegramFeedDeliveryService>();
@@ -83,20 +76,15 @@ public static class DependencyInjection
         services.AddDbContext<AggregatorDbContext>(options =>
             options.UseNpgsql(connectionString, builder => builder.MigrationsAssembly(typeof(AggregatorDbContext).Assembly.FullName)));
 
-        services.AddScoped<IAppUserRepository, AppUserRepository>();
-        services.AddScoped<ITrackedChannelRepository, TrackedChannelRepository>();
-        services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
-        services.AddScoped<IManagedChannelRepository, ManagedChannelRepository>();
-        services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
-        services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
-        services.AddScoped<IPostRepository, PostRepository>();
-        services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
+        RegisterRepositories(services);
 
         services.AddHttpClient(nameof(Services.Monitoring.HttpBotStatusProbe));
-        services.AddHttpClient(nameof(TelegramBotGateway));
+        services.AddHttpClient(nameof(TelegramBotGateway), client => client.Timeout = TimeSpan.FromMinutes(3));
+        services.AddHttpClient(nameof(TelegramErrorAlertService));
         services.AddScoped<IBotStatusProbe, Services.Monitoring.HeartbeatBotStatusProbe>();
         services.AddScoped<IBotStatusProbe, Services.Monitoring.HttpBotStatusProbe>();
         services.AddSingleton<ITelegramBotGateway, TelegramBotGateway>();
+        services.AddSingleton<IErrorAlertService, TelegramErrorAlertService>();
         services.AddScoped<ITelegramMiniAppAuthService, Services.Monitoring.TelegramMiniAppAuthService>();
 
         return services;
@@ -132,5 +120,21 @@ public static class DependencyInjection
             "tdlib-media-cache-cleanup",
             job => job.RunAsync(CancellationToken.None),
             "15 * * * *");
+    }
+
+    private static void RegisterRepositories(IServiceCollection services)
+    {
+        services.AddScoped<IAppUserRepository, AppUserRepository>();
+        services.AddScoped<IAdminUserRepository, AdminUserRepository>();
+        services.AddScoped<ITrackedChannelRepository, TrackedChannelRepository>();
+        services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+        services.AddScoped<IManagedChannelRepository, ManagedChannelRepository>();
+        services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
+        services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
+        services.AddScoped<IPostRepository, PostRepository>();
+        services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();
+        services.AddScoped<ISubscriptionPlanRepository, SubscriptionPlanRepository>();
+        services.AddScoped<IDonationOptionRepository, DonationOptionRepository>();
+        services.AddScoped<ISubscriptionPaymentTransactionRepository, SubscriptionPaymentTransactionRepository>();
     }
 }

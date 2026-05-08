@@ -32,8 +32,25 @@ public sealed record BotStatusDto(
     DateTimeOffset? LastSuccessAtUtc,
     TimeSpan? ResponseTime);
 
+public sealed record ServerMetricPointDto(
+    DateTimeOffset CapturedAtUtc,
+    double CpuPercent,
+    double MemoryPercent,
+    double DiskPercent);
+
+public sealed record ServerStatusChartDto(
+    DateTimeOffset CapturedAtUtc,
+    double CpuPercent,
+    double MemoryPercent,
+    double DiskPercent,
+    double LoadAverage1m,
+    string MemorySummary,
+    string DiskSummary,
+    IReadOnlyCollection<ServerMetricPointDto> History);
+
 public sealed record MonitoringDashboardDto(
     string AllowedEmail,
     int RefreshIntervalSeconds,
     DateTimeOffset GeneratedAtUtc,
-    IReadOnlyCollection<BotStatusDto> Bots);
+    IReadOnlyCollection<BotStatusDto> Bots,
+    ServerStatusChartDto? ServerStatus = null);

@@ -467,6 +467,18 @@ public sealed class BotLocalizationCatalog
                 return true;
             }
 
+            if (string.Equals(text, PlansButtonLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                action = BotMainMenuAction.Plans;
+                return true;
+            }
+
+            if (string.Equals(text, SupportProjectButtonLabel, StringComparison.OrdinalIgnoreCase))
+            {
+                action = BotMainMenuAction.Support;
+                return true;
+            }
+
             if (string.Equals(text, locale.DeleteAllLabel, StringComparison.OrdinalIgnoreCase))
             {
                 action = BotMainMenuAction.DeleteAll;
@@ -554,9 +566,13 @@ public sealed class BotLocalizationCatalog
 
     public string MiniAppButtonLabel => "Mini App";
 
-    public string ManagedChannelsButtonLabel => "Add my channel";
+    public string ManagedChannelsButtonLabel => "Мої канали";
 
     public string FaqButtonLabel => "FAQ";
+
+    public string PlansButtonLabel => "Plans";
+
+    public string SupportProjectButtonLabel => "Підтримати проект";
 
     public bool IsManagedChannelsRequestLabel(string? text) =>
         string.Equals(text?.Trim(), ManagedChannelsButtonLabel, StringComparison.OrdinalIgnoreCase);
@@ -630,5 +646,7 @@ public enum BotMainMenuAction
     List = 3,
     Faq = 4,
     DeleteAll = 5,
-    Language = 6
+    Language = 6,
+    Plans = 7,
+    Support = 8
 }

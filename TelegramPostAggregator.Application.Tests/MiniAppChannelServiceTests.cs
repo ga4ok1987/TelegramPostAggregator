@@ -1,8 +1,10 @@
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
+using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Application.Services;
 using TelegramPostAggregator.Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -11,7 +13,7 @@ namespace TelegramPostAggregator.Application.Tests;
 public sealed class MiniAppChannelServiceTests
 {
     [Fact]
-    public async Task ListAsync_Returns_Only_Channels_Where_Bot_Is_Admin()
+    public async Task ListAsync_Filters_Out_Channels_Where_Bot_Is_No_Longer_Admin()
     {
         var service = new MiniAppChannelService(
             new FakeManagedChannelRepository(
@@ -27,13 +29,14 @@ public sealed class MiniAppChannelServiceTests
                 ["-1001"] = true,
                 ["-1002"] = false
             }),
+            new FakeServiceScopeFactory(new FakeServiceProvider()),
+            new FakeErrorAlertService(),
             NullLogger<MiniAppChannelService>.Instance);
 
         var channels = await service.ListAsync(123456789);
 
         var channel = Assert.Single(channels);
         Assert.Equal("Alpha", channel.ChannelName);
-        Assert.Empty(channel.Subscriptions);
     }
 
     [Fact]
@@ -74,6 +77,8 @@ public sealed class MiniAppChannelServiceTests
                     ["-1001"] = "data:image/png;base64,alpha",
                     ["@source_one"] = "data:image/png;base64,source"
                 }),
+            new FakeServiceScopeFactory(new FakeServiceProvider()),
+            new FakeErrorAlertService(),
             NullLogger<MiniAppChannelService>.Instance);
 
         var channels = await service.ListAsync(user.TelegramUserId);
@@ -97,6 +102,8 @@ public sealed class MiniAppChannelServiceTests
             {
                 ["-100200"] = true
             }),
+            new FakeServiceScopeFactory(new FakeServiceProvider(repository)),
+            new FakeErrorAlertService(),
             NullLogger<MiniAppChannelService>.Instance);
 
         var result = await service.RegisterSharedChannelAsync(
@@ -108,7 +115,31 @@ public sealed class MiniAppChannelServiceTests
         Assert.Equal("My Private Channel", channel.ChannelName);
         Assert.Equal(-100200, channel.TelegramChatId);
         Assert.Equal("private_channel", channel.Username);
-        Assert.NotNull(channel.LastWriteSucceededAtUtc);
+        Assert.NotNull(channel.LastVerifiedAtUtc);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_Leaves_Channel_Then_Removes_Managed_Channel()
+    {
+        var user = CreateUser();
+        var managedChannel = CreateManagedChannel(user, "Alpha", -1001, "alpha", true);
+        var gateway = new FakeTelegramBotGateway(new Dictionary<string, bool> { ["-1001"] = true });
+        var repository = new FakeManagedChannelRepository([managedChannel]);
+        var service = new MiniAppChannelService(
+            repository,
+            new FakeManagedChannelSubscriptionRepository([]),
+            new FakeAppUserRepository(user),
+            new FakePostRepository(),
+            gateway,
+            new FakeServiceScopeFactory(new FakeServiceProvider()),
+            new FakeErrorAlertService(),
+            NullLogger<MiniAppChannelService>.Instance);
+
+        var deleted = await service.DeleteAsync(user.TelegramUserId, managedChannel.Id);
+
+        Assert.True(deleted);
+        Assert.Empty(repository.Items);
+        Assert.Equal("-1001", gateway.LeftChatId);
     }
 
     [Fact]
@@ -144,6 +175,8 @@ public sealed class MiniAppChannelServiceTests
             {
                 ["-1001"] = true
             }),
+            new FakeServiceScopeFactory(new FakeServiceProvider()),
+            new FakeErrorAlertService(),
             NullLogger<MiniAppChannelService>.Instance);
 
         var channels = await service.ListAsync(user.TelegramUserId);
@@ -180,6 +213,9 @@ public sealed class MiniAppChannelServiceTests
     {
         public List<ManagedChannel> Items { get; } = seed.ToList();
 
+        public Task<ManagedChannel?> GetByIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.Id == managedChannelId));
+
         public Task<ManagedChannel?> GetAsync(Guid userId, Guid managedChannelId, CancellationToken cancellationToken = default) =>
             Task.FromResult<ManagedChannel?>(Items.FirstOrDefault(x => x.UserId == userId && x.Id == managedChannelId));
 
@@ -210,8 +246,17 @@ public sealed class MiniAppChannelServiceTests
     {
         private List<ManagedChannelSubscription> Items { get; } = seed.ToList();
 
+        public Task<ManagedChannelSubscription?> GetByIdAsync(Guid subscriptionId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ManagedChannelSubscription?>(Items.FirstOrDefault(x => x.Id == subscriptionId));
+
         public Task<ManagedChannelSubscription?> GetAsync(Guid managedChannelId, Guid channelId, CancellationToken cancellationToken = default) =>
             Task.FromResult<ManagedChannelSubscription?>(Items.FirstOrDefault(x => x.ManagedChannelId == managedChannelId && x.ChannelId == channelId));
+
+        public Task<int> CountByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Items.Count(x => x.ManagedChannelId == managedChannelId));
+
+        public Task<IReadOnlyList<ManagedChannelSubscription>> GetPageByManagedChannelIdAsync(Guid managedChannelId, int skip, int take, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ManagedChannelId == managedChannelId).Skip(skip).Take(take).ToList());
 
         public Task<IReadOnlyList<ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ManagedChannel.User.TelegramUserId == telegramUserId).ToList());
@@ -238,8 +283,14 @@ public sealed class MiniAppChannelServiceTests
 
     private sealed class FakeAppUserRepository(AppUser user) : IAppUserRepository
     {
+        public Task<AppUser?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<AppUser?>(user.Id == userId ? user : null);
+
         public Task<AppUser?> GetByTelegramUserIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult<AppUser?>(user.TelegramUserId == telegramUserId ? user : null);
+
+        public Task<IReadOnlyList<AppUser>> ListForAdminAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<AppUser>>([user]);
 
         public Task AddAsync(AppUser user, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -250,10 +301,15 @@ public sealed class MiniAppChannelServiceTests
         IReadOnlyDictionary<string, bool> adminChannels,
         IReadOnlyDictionary<string, string?>? avatars = null) : ITelegramBotGateway
     {
+        public string? LeftChatId { get; private set; }
+
         public Task<IReadOnlyList<TelegramBotUpdateDto>> GetUpdatesAsync(long offset, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<TelegramBotUpdateDto>>([]);
 
         public Task<TelegramBotApiResultDto> SendMessageAsync(TelegramBotOutboundMessageDto message, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
+
+        public Task<TelegramBotApiResultDto> SendInvoiceAsync(TelegramBotInvoiceDto invoice, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
 
         public Task<TelegramBotApiResultDto> SendPhotoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
@@ -283,8 +339,17 @@ public sealed class MiniAppChannelServiceTests
         public Task<TelegramBotApiResultDto> AnswerCallbackQueryAsync(string callbackQueryId, string? text, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
 
+        public Task<TelegramBotApiResultDto> AnswerPreCheckoutQueryAsync(string preCheckoutQueryId, bool ok, string? errorMessage, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
+
         public Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default) =>
             Task.FromResult(adminChannels.TryGetValue(telegramChannelId, out var isAdmin) && isAdmin);
+
+        public Task<TelegramBotApiResultDto> LeaveChatAsync(string telegramChannelId, CancellationToken cancellationToken = default)
+        {
+            LeftChatId = telegramChannelId;
+            return Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
+        }
 
         public Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
@@ -307,5 +372,37 @@ public sealed class MiniAppChannelServiceTests
         public Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<long?>(999);
         public Task AddAsync(TelegramPost post, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeServiceScopeFactory(IServiceProvider serviceProvider) : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope() => new FakeServiceScope(serviceProvider);
+    }
+
+    private sealed class FakeServiceScope(IServiceProvider serviceProvider) : IServiceScope
+    {
+        public IServiceProvider ServiceProvider { get; } = serviceProvider;
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class FakeServiceProvider(IManagedChannelRepository? managedChannelRepository = null) : IServiceProvider
+    {
+        public object? GetService(Type serviceType)
+        {
+            if (managedChannelRepository is not null && serviceType == typeof(IManagedChannelRepository))
+            {
+                return managedChannelRepository;
+            }
+
+            return null;
+        }
+    }
+
+    private sealed class FakeErrorAlertService : IErrorAlertService
+    {
+        public Task SendAsync(string title, string message, Exception? exception = null, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

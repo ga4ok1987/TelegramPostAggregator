@@ -118,7 +118,34 @@ public sealed class BotMessageCatalog(BotLocalizationCatalog localizationCatalog
         localizationCatalog.GetLocale(languageCode).LanguageSelectionPrompt;
 
     public string ManagedChannelsPrompt() =>
-        "Use the channel picker button to select a private channel where the bot is already an administrator.";
+        "Керування власними каналами перенесено в Mini App. Якщо бот уже є адміністратором каналу, він автоматично з'явиться у списку каналів у Mini App, де можна запускати моніторинг і керувати підписками.";
+
+    public string BuildPlansMessage(IReadOnlyList<SubscriptionPlanDefinitionDto> plans, SubscriptionUsageDto usage, string languageCode)
+    {
+        var header = localizationCatalog.NormalizeLanguageCode(languageCode) == "uk"
+            ? $"Поточний тариф: {usage.CurrentPlanName}\nВикористано каналів: {usage.UsedChannels}/{usage.ChannelLimit}\nПлани працюють як підписка Telegram Stars з автопродовженням кожні 30 днів."
+            : $"Current plan: {usage.CurrentPlanName}\nChannels used: {usage.UsedChannels}/{usage.ChannelLimit}\nPlans use Telegram Stars subscriptions and renew automatically every 30 days.";
+
+        var expiryLine = usage.ExpiresAtUtc.HasValue
+            ? (localizationCatalog.NormalizeLanguageCode(languageCode) == "uk"
+                ? $"\nДіє до: {usage.ExpiresAtUtc:dd.MM.yyyy HH:mm}"
+                : $"\nActive until: {usage.ExpiresAtUtc:yyyy-MM-dd HH:mm}")
+            : string.Empty;
+
+        var lines = plans.Select(plan =>
+        {
+            var duration = plan.DurationDays.HasValue ? $"{plan.DurationDays.Value}d" : "∞";
+            var price = plan.PriceStars <= 0 ? "free" : $"{plan.PriceStars}⭐/30d";
+            return $"• {plan.DisplayName}: {plan.ChannelLimit} / {price} / {duration}";
+        });
+
+        return header + expiryLine + "\n\n" + string.Join(Environment.NewLine, lines);
+    }
+
+    public string BuildSupportProjectMessage(string languageCode) =>
+        localizationCatalog.NormalizeLanguageCode(languageCode) == "uk"
+            ? "Підтримати проект Telegram Stars. Оберіть суму донату нижче."
+            : "Support the project with Telegram Stars. Choose a donation amount below.";
 
     public string BuildBotFaqMessage(string languageCode)
     {
@@ -138,10 +165,10 @@ public sealed class BotMessageCatalog(BotLocalizationCatalog localizationCatalog
                 «Старт» відновлює моніторинг нових постів. «Стоп» ставить доставку на паузу. Пропущені під час паузи пости потім не доганяються.
 
                 4. Як підключити власний канал:
-                Додайте бота адміністратором у свій канал, потім у чаті з ботом натисніть «Add my channel» і виберіть цей канал.
+                Додайте бота адміністратором у свій канал. Після цього канал автоматично з'явиться в Mini App у списку власних каналів.
 
                 5. Як додати підписку у власний канал:
-                Після підключення каналу надішліть у цей канал одним окремим повідомленням посилання на джерело або @username. Бот почне пересилати нові пости саме туди.
+                Відкрийте потрібний канал у Mini App або просто надішліть у цей канал одним окремим повідомленням посилання на джерело або @username. Бот почне моніторити це джерело саме для цього каналу.
 
                 6. Де керувати власними каналами:
                 Відкрийте Mini App. Там можна переглядати свої канали, зупиняти їх, видаляти та керувати підписками всередині кожного каналу.
@@ -160,10 +187,10 @@ public sealed class BotMessageCatalog(BotLocalizationCatalog localizationCatalog
                 Start resumes monitoring for new posts. Stop pauses delivery. Posts missed during pause are not replayed later.
 
                 4. How to connect your own channel:
-                Add the bot as an administrator in your channel, then press Add my channel in the bot chat and choose that channel.
+                Add the bot as an administrator in your channel. After that, the channel appears automatically in the Mini App channel list.
 
                 5. How to add a source subscription into your own channel:
-                After the channel is connected, send a single message into that channel containing a source link or @username. The bot will start delivering new posts there.
+                Open the channel in the Mini App or send a single message into that channel containing a source link or @username. The bot will start monitoring that source for this destination channel.
 
                 6. Where to manage your own channels:
                 Open the Mini App. There you can review your channels, stop them, delete them, and manage source subscriptions inside each channel.

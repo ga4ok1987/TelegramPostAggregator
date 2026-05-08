@@ -7,6 +7,11 @@ namespace TelegramPostAggregator.Infrastructure.Repositories;
 
 public sealed class ManagedChannelRepository(AggregatorDbContext dbContext) : IManagedChannelRepository
 {
+    public Task<ManagedChannel?> GetByIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
+        dbContext.ManagedChannels
+            .Include(x => x.User)
+            .FirstOrDefaultAsync(x => x.Id == managedChannelId, cancellationToken);
+
     public Task<ManagedChannel?> GetAsync(Guid userId, Guid managedChannelId, CancellationToken cancellationToken = default) =>
         dbContext.ManagedChannels.FirstOrDefaultAsync(
             x => x.UserId == userId && x.Id == managedChannelId,

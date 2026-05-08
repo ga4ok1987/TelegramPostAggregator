@@ -1,6 +1,7 @@
 @page "/"
 @implements IDisposable
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject ViewModels.DashboardViewModel ViewModel
 
 <PageTitle>Bot Monitoring</PageTitle>
@@ -51,6 +52,50 @@ else
             <strong>@ViewModel.Dashboard.RefreshIntervalSeconds s</strong>
         </article>
     </section>
+
+    @if (ViewModel.Dashboard.ServerStatus is not null)
+    {
+        var server = ViewModel.Dashboard.ServerStatus;
+        <section class="server-panel">
+            <div class="server-panel-header">
+                <div>
+                    <p class="eyebrow">Server status</p>
+                    <h3>Host health overview</h3>
+                    <p class="hero-copy">Auto-updates every @ViewModel.Dashboard.RefreshIntervalSeconds seconds. This is lightweight polling, not high-frequency realtime streaming.</p>
+                </div>
+                <div class="server-captured-at">
+                    Updated @server.CapturedAtUtc.ToLocalTime().ToString("HH:mm:ss")
+                </div>
+            </div>
+
+            <div class="server-metrics-grid">
+                <article class="server-metric-card">
+                    <div class="server-metric-head">
+                        <span class="summary-label">CPU load</span>
+                        <strong>@server.CpuPercent.ToString("0.#")%</strong>
+                    </div>
+                    <div class="server-metric-subtitle">Load avg 1m: @server.LoadAverage1m.ToString("0.##")</div>
+                    <div class="metric-bar-shell"><div class="metric-bar cpu-bar" style="@BuildBarStyle(server.CpuPercent)"></div></div>
+                </article>
+                <article class="server-metric-card">
+                    <div class="server-metric-head">
+                        <span class="summary-label">Memory</span>
+                        <strong>@server.MemoryPercent.ToString("0.#")%</strong>
+                    </div>
+                    <div class="server-metric-subtitle">@server.MemorySummary</div>
+                    <div class="metric-bar-shell"><div class="metric-bar memory-bar" style="@BuildBarStyle(server.MemoryPercent)"></div></div>
+                </article>
+                <article class="server-metric-card">
+                    <div class="server-metric-head">
+                        <span class="summary-label">Disk</span>
+                        <strong>@server.DiskPercent.ToString("0.#")%</strong>
+                    </div>
+                    <div class="server-metric-subtitle">@server.DiskSummary</div>
+                    <div class="metric-bar-shell"><div class="metric-bar disk-bar" style="@BuildBarStyle(server.DiskPercent)"></div></div>
+                </article>
+            </div>
+        </section>
+    }
 
     <section class="bots-grid">
         @foreach (var bot in ViewModel.Dashboard.Bots)
@@ -161,4 +206,7 @@ else
         _timer?.Dispose();
         _refreshLoopCts?.Dispose();
     }
+
+    private static string BuildBarStyle(double value) =>
+        $"width: {Math.Clamp(value, 0d, 100d):0.#}%;";
 }

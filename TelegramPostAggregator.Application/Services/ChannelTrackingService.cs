@@ -3,11 +3,13 @@ using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Domain.Entities;
 using TelegramPostAggregator.Domain.Enums;
+using System.Text.RegularExpressions;
 
 namespace TelegramPostAggregator.Application.Services;
 
 public sealed class ChannelTrackingService(
     IUserService userService,
+    IBillingService billingService,
     ITrackedChannelRepository trackedChannelRepository,
     ISubscriptionRepository subscriptionRepository,
     IManagedChannelRepository managedChannelRepository,
@@ -17,13 +19,43 @@ public sealed class ChannelTrackingService(
     IChannelKeyNormalizer channelKeyNormalizer,
     Bot.BotLocalizationCatalog localizationCatalog) : IChannelTrackingService
 {
-    public async Task<ChannelDto> AddTrackedChannelAsync(AddTrackedChannelDto request, CancellationToken cancellationToken = default)
+    private static readonly Regex TelegramUsernameRegex = new("^[A-Za-z0-9_]{4,}$", RegexOptions.Compiled);
+    private static readonly HashSet<string> ReservedTelegramPaths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "addstickers",
+        "boost",
+        "c",
+        "faq",
+        "giftcode",
+        "invoice",
+        "joinchat",
+        "login",
+        "m",
+        "proxy",
+        "s",
+        "share",
+        "stickers",
+        "username"
+    };
+
+    public async Task<ChannelTrackingResultDto> AddTrackedChannelAsync(AddTrackedChannelDto request, CancellationToken cancellationToken = default)
     {
         var user = await userService.UpsertTelegramUserAsync(
             new BotUserSnapshotDto(request.TelegramUserId, request.TelegramUsername, request.DisplayName, "en"),
             cancellationToken);
 
+        if (!TryValidateChannelReference(request.ChannelReference, out var validationError))
+        {
+            var currentUsage = await billingService.GetSubscriptionUsageAsync(request.TelegramUserId, cancellationToken);
+            return new ChannelTrackingResultDto(false, validationError!, Usage: currentUsage);
+        }
+
         var channel = await EnsureTrackedChannelAsync(request.ChannelReference, cancellationToken);
+        var billingDecision = await billingService.CanAddChannelAsync(request.TelegramUserId, channel.Id, cancellationToken);
+        if (!billingDecision.Success)
+        {
+            return billingDecision with { Channel = ToDto(channel) };
+        }
 
         var subscription = await subscriptionRepository.GetAsync(user.Id, channel.Id, cancellationToken);
         if (subscription is null)
@@ -49,7 +81,8 @@ public sealed class ChannelTrackingService(
         await trackedChannelRepository.SaveChangesAsync(cancellationToken);
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
 
-        return ToDto(channel);
+        var usage = await billingService.GetSubscriptionUsageAsync(request.TelegramUserId, cancellationToken);
+        return new ChannelTrackingResultDto(true, string.Empty, ToDto(channel), usage);
     }
 
     public async Task<ManagedChannelTrackingResultDto> AddTrackedChannelToManagedChannelAsync(
@@ -62,7 +95,18 @@ public sealed class ChannelTrackingService(
             return new ManagedChannelTrackingResultDto(false, "Connect this destination channel first from the bot.");
         }
 
+        if (!TryValidateChannelReference(request.ChannelReference, out var validationError))
+        {
+            return new ManagedChannelTrackingResultDto(false, validationError!);
+        }
+
         var channel = await EnsureTrackedChannelAsync(request.ChannelReference, cancellationToken);
+        var billingDecision = await billingService.CanAddChannelAsync(managedChannel.User.TelegramUserId, channel.Id, cancellationToken);
+        if (!billingDecision.Success)
+        {
+            return new ManagedChannelTrackingResultDto(false, billingDecision.Message, ToDto(channel));
+        }
+
         var subscription = await managedChannelSubscriptionRepository.GetAsync(managedChannel.Id, channel.Id, cancellationToken);
         if (subscription is null)
         {
@@ -222,10 +266,11 @@ public sealed class ChannelTrackingService(
             return channel;
         }
 
+        var normalizedReference = NormalizeChannelReference(channelReference, normalizedKey);
         channel = new TrackedChannel
         {
             ChannelName = normalizedKey,
-            UsernameOrInviteLink = channelReference.Trim(),
+            UsernameOrInviteLink = normalizedReference,
             NormalizedChannelKey = normalizedKey,
             Status = ChannelTrackingStatus.PendingSubscription
         };
@@ -251,4 +296,122 @@ public sealed class ChannelTrackingService(
 
     private static ChannelDto ToDto(TrackedChannel channel) =>
         new(channel.Id, channel.ChannelName, channel.UsernameOrInviteLink, channel.Status.ToString(), channel.LastPostCollectedAtUtc, channel.LastCollectorError);
+
+    private static string NormalizeChannelReference(string channelReference, string normalizedKey)
+    {
+        var trimmed = channelReference.Trim().TrimEnd('\'', '"', ',', '.', ';', ':', '!', '?', ')', ']', '}');
+        if (trimmed.Contains("/+", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("joinchat/", StringComparison.OrdinalIgnoreCase))
+        {
+            if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://" + trimmed["http://".Length..];
+            }
+
+            if (trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed;
+            }
+
+            if (trimmed.StartsWith("t.me/", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://" + trimmed;
+            }
+
+            return trimmed.StartsWith("+", StringComparison.Ordinal)
+                ? $"https://t.me/{trimmed}"
+                : $"https://t.me/{trimmed.TrimStart('/')}";
+        }
+
+        if (trimmed.StartsWith("@", StringComparison.Ordinal))
+        {
+            return "@" + normalizedKey;
+        }
+
+        if (trimmed.StartsWith("https://t.me/s/", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("http://t.me/s/", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("t.me/s/", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"https://t.me/{normalizedKey}";
+        }
+
+        if (trimmed.StartsWith("+", StringComparison.Ordinal))
+        {
+            return $"https://t.me/{trimmed}";
+        }
+
+        return $"https://t.me/{normalizedKey}";
+    }
+
+    private static bool TryValidateChannelReference(string channelReference, out string? validationError)
+    {
+        validationError = null;
+        var trimmed = channelReference.Trim().TrimEnd('\'', '"', ',', '.', ';', ':', '!', '?', ')', ']', '}');
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            validationError = "Send a Telegram channel link or @username.";
+            return false;
+        }
+
+        if (trimmed.StartsWith("+", StringComparison.Ordinal) ||
+            trimmed.Contains("/+", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("joinchat/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (trimmed.StartsWith("@", StringComparison.Ordinal))
+        {
+            var username = trimmed[1..];
+            if (TelegramUsernameRegex.IsMatch(username))
+            {
+                return true;
+            }
+
+            validationError = "Send a valid Telegram channel username like @channel_name.";
+            return false;
+        }
+
+        var candidate = trimmed;
+        if (candidate.StartsWith("https://t.me/", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = candidate["https://t.me/".Length..];
+        }
+        else if (candidate.StartsWith("http://t.me/", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = candidate["http://t.me/".Length..];
+        }
+        else if (candidate.StartsWith("t.me/", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = candidate["t.me/".Length..];
+        }
+
+        candidate = candidate.Trim('/');
+        if (candidate.StartsWith("s/", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = candidate["s/".Length..].Trim('/');
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            validationError = "Send a Telegram channel link or @username.";
+            return false;
+        }
+
+        var slashIndex = candidate.IndexOf('/');
+        var slug = slashIndex >= 0 ? candidate[..slashIndex] : candidate;
+        if (ReservedTelegramPaths.Contains(slug))
+        {
+            validationError = "This Telegram link is not a monitorable channel. Send a channel link or @username.";
+            return false;
+        }
+
+        if (!TelegramUsernameRegex.IsMatch(slug))
+        {
+            validationError = "Send a valid Telegram channel link like https://t.me/channel_name or @channel_name.";
+            return false;
+        }
+
+        return true;
+    }
 }

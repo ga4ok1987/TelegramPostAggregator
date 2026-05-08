@@ -4,7 +4,10 @@ namespace TelegramPostAggregator.Application.Abstractions.Repositories;
 
 public interface IManagedChannelSubscriptionRepository
 {
+    Task<ManagedChannelSubscription?> GetByIdAsync(Guid subscriptionId, CancellationToken cancellationToken = default);
     Task<ManagedChannelSubscription?> GetAsync(Guid managedChannelId, Guid channelId, CancellationToken cancellationToken = default);
+    Task<int> CountByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ManagedChannelSubscription>> GetPageByManagedChannelIdAsync(Guid managedChannelId, int skip, int take, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default);

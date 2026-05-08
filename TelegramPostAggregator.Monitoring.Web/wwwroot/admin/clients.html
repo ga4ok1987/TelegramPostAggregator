@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clients Admin</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/admin/admin-clients.css?v=20260505-client-slots-1" />
+</head>
+<body>
+    <main class="admin-shell">
+        <header class="admin-header">
+            <div>
+                <p class="eyebrow">Clients Admin</p>
+                <h1>Clients Control Center</h1>
+                <p class="subtitle">Fast admin panel for clients, bot subscriptions, owned channels, and source subscriptions.</p>
+            </div>
+            <div class="header-actions">
+                <a class="ghost-link" href="/">Dashboard</a>
+                <a class="ghost-link" href="/admin/control-center">Control Center</a>
+                <a class="ghost-link" href="/auth/logout">Sign out</a>
+            </div>
+        </header>
+
+        <section class="toolbar">
+            <input id="searchInput" type="search" placeholder="Search by name, username or Telegram ID" />
+            <button id="refreshButton" type="button">Refresh</button>
+        </section>
+
+        <section id="errorBanner" class="error-banner hidden"></section>
+
+        <section class="layout">
+            <aside class="sidebar">
+                <div class="sidebar-head">
+                    <h2>Clients</h2>
+                    <span id="clientsCount">0</span>
+                </div>
+                <div id="clientsList" class="clients-list"></div>
+                <div class="pager" id="clientsPager"></div>
+            </aside>
+
+            <section id="detailPanel" class="detail-panel">
+                <div class="empty-state">
+                    Select a client to load details.
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <script src="/admin/admin-clients.js?v=20260505-client-slots-1"></script>
+</body>
+</html>

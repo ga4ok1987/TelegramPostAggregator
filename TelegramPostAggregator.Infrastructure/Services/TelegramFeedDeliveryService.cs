@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.DTOs;
 using Microsoft.Extensions.DependencyInjection;
@@ -78,8 +79,19 @@ public sealed class TelegramFeedDeliveryService(
         var subscriptionRepository = scope.ServiceProvider.GetRequiredService<ISubscriptionRepository>();
         var managedChannelSubscriptionRepository = scope.ServiceProvider.GetRequiredService<IManagedChannelSubscriptionRepository>();
         var postRepository = scope.ServiceProvider.GetRequiredService<IPostRepository>();
+        var billingService = scope.ServiceProvider.GetRequiredService<IBillingService>();
 
-        var subscriptions = await subscriptionRepository.GetActiveForDeliveryAsync(_options.DeliveryBatchSize, cancellationToken);
+        var subscriptions = await subscriptionRepository.GetActiveForDeliveryAsync(int.MaxValue, cancellationToken);
+        subscriptions = await FilterDirectSubscriptionsForCurrentPlanAsync(
+            subscriptions,
+            subscriptionRepository,
+            managedChannelSubscriptionRepository,
+            billingService,
+            cancellationToken);
+        subscriptions = subscriptions
+            .OrderBy(x => x.LastDeliveredAtUtc ?? x.CreatedAtUtc)
+            .Take(_options.DeliveryBatchSize)
+            .ToArray();
         foreach (var subscription in subscriptions)
         {
             Domain.Entities.TelegramPost? currentPost = null;
@@ -191,7 +203,17 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
-        var managedSubscriptions = await managedChannelSubscriptionRepository.GetActiveForDeliveryAsync(_options.DeliveryBatchSize, cancellationToken);
+        var managedSubscriptions = await managedChannelSubscriptionRepository.GetActiveForDeliveryAsync(int.MaxValue, cancellationToken);
+        managedSubscriptions = await FilterManagedSubscriptionsForCurrentPlanAsync(
+            managedSubscriptions,
+            subscriptionRepository,
+            managedChannelSubscriptionRepository,
+            billingService,
+            cancellationToken);
+        managedSubscriptions = managedSubscriptions
+            .OrderBy(x => x.LastDeliveredAtUtc ?? x.CreatedAtUtc)
+            .Take(_options.DeliveryBatchSize)
+            .ToArray();
         foreach (var subscription in managedSubscriptions)
         {
             Domain.Entities.TelegramPost? currentPost = null;
@@ -305,6 +327,94 @@ public sealed class TelegramFeedDeliveryService(
 
         await subscriptionRepository.SaveChangesAsync(cancellationToken);
         await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> FilterDirectSubscriptionsForCurrentPlanAsync(
+        IReadOnlyList<Domain.Entities.UserChannelSubscription> activeSubscriptions,
+        ISubscriptionRepository subscriptionRepository,
+        IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
+        IBillingService billingService,
+        CancellationToken cancellationToken)
+    {
+        if (activeSubscriptions.Count == 0)
+        {
+            return activeSubscriptions;
+        }
+
+        var groupedByUser = activeSubscriptions.GroupBy(x => x.User.TelegramUserId);
+        var filtered = new List<Domain.Entities.UserChannelSubscription>();
+
+        foreach (var group in groupedByUser)
+        {
+            var allowedChannelIds = await ResolveAllowedChannelIdsAsync(
+                group.Key,
+                subscriptionRepository,
+                managedChannelSubscriptionRepository,
+                billingService,
+                cancellationToken);
+
+            filtered.AddRange(group.Where(x => allowedChannelIds.Contains(x.ChannelId)));
+        }
+
+        return filtered;
+    }
+
+    private static async Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> FilterManagedSubscriptionsForCurrentPlanAsync(
+        IReadOnlyList<Domain.Entities.ManagedChannelSubscription> activeSubscriptions,
+        ISubscriptionRepository subscriptionRepository,
+        IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
+        IBillingService billingService,
+        CancellationToken cancellationToken)
+    {
+        if (activeSubscriptions.Count == 0)
+        {
+            return activeSubscriptions;
+        }
+
+        var groupedByUser = activeSubscriptions.GroupBy(x => x.ManagedChannel.User.TelegramUserId);
+        var filtered = new List<Domain.Entities.ManagedChannelSubscription>();
+
+        foreach (var group in groupedByUser)
+        {
+            var allowedChannelIds = await ResolveAllowedChannelIdsAsync(
+                group.Key,
+                subscriptionRepository,
+                managedChannelSubscriptionRepository,
+                billingService,
+                cancellationToken);
+
+            filtered.AddRange(group.Where(x => allowedChannelIds.Contains(x.ChannelId)));
+        }
+
+        return filtered;
+    }
+
+    private static async Task<HashSet<Guid>> ResolveAllowedChannelIdsAsync(
+        long telegramUserId,
+        ISubscriptionRepository subscriptionRepository,
+        IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
+        IBillingService billingService,
+        CancellationToken cancellationToken)
+    {
+        var usage = await billingService.GetSubscriptionUsageAsync(telegramUserId, cancellationToken);
+        var directSubscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var managedSubscriptions = await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+
+        var orderedChannels = directSubscriptions
+            .Select(x => new { x.ChannelId, x.CreatedAtUtc })
+            .Concat(managedSubscriptions.Select(x => new { x.ChannelId, x.CreatedAtUtc }))
+            .GroupBy(x => x.ChannelId)
+            .Select(group => new
+            {
+                ChannelId = group.Key,
+                FirstSeenAtUtc = group.Min(x => x.CreatedAtUtc)
+            })
+            .OrderBy(x => x.FirstSeenAtUtc)
+            .ThenBy(x => x.ChannelId)
+            .Take(Math.Max(usage.ChannelLimit, 0))
+            .Select(x => x.ChannelId);
+
+        return orderedChannels.ToHashSet();
     }
 
     private async Task<TelegramBotApiResultDto> SendPostsAsync(
@@ -724,6 +834,20 @@ public sealed class TelegramFeedDeliveryService(
             return true;
         }
 
+        if (TryGetRetryDelay(response, out var retryDelay))
+        {
+            subscription.LastDeliveredAtUtc = now;
+            subscription.UpdatedAtUtc = now;
+
+            logger.LogWarning(
+                "Telegram rate-limited delivery for subscription {SubscriptionId}, chat {ChatId}. Respecting retry_after={RetryAfterSeconds}s.",
+                subscription.Id,
+                subscription.User.TelegramUserId,
+                retryDelay.TotalSeconds);
+            await Task.Delay(retryDelay, cancellationToken);
+            return false;
+        }
+
         logger.LogError(
             "Telegram returned {StatusCode} for subscription {SubscriptionId}, chat {ChatId}, post {PostId}. Response: {ResponseBody}",
             (int)response.StatusCode,
@@ -762,6 +886,20 @@ public sealed class TelegramFeedDeliveryService(
                 (int)response.StatusCode,
                 responseBody);
             return true;
+        }
+
+        if (TryGetRetryDelay(response, out var retryDelay))
+        {
+            subscription.LastDeliveredAtUtc = now;
+            subscription.UpdatedAtUtc = now;
+
+            logger.LogWarning(
+                "Telegram rate-limited managed channel delivery for subscription {SubscriptionId}, chat {ChatId}. Respecting retry_after={RetryAfterSeconds}s.",
+                subscription.Id,
+                subscription.ManagedChannel.TelegramChatId,
+                retryDelay.TotalSeconds);
+            await Task.Delay(retryDelay, cancellationToken);
+            return false;
         }
 
         logger.LogError(
@@ -886,6 +1024,35 @@ public sealed class TelegramFeedDeliveryService(
                body.Contains("chat not found", StringComparison.Ordinal) ||
                body.Contains("group chat was upgraded", StringComparison.Ordinal) ||
                body.Contains("have no rights to send", StringComparison.Ordinal);
+    }
+
+    private static bool TryGetRetryDelay(TelegramBotApiResultDto response, out TimeSpan retryDelay)
+    {
+        retryDelay = TimeSpan.Zero;
+        if (response.StatusCode != HttpStatusCode.TooManyRequests || string.IsNullOrWhiteSpace(response.ResponseBody))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(response.ResponseBody);
+            if (document.RootElement.TryGetProperty("parameters", out var parameters) &&
+                parameters.TryGetProperty("retry_after", out var retryAfterElement) &&
+                retryAfterElement.TryGetInt32(out var retryAfterSeconds) &&
+                retryAfterSeconds > 0)
+            {
+                retryDelay = TimeSpan.FromSeconds(Math.Min(retryAfterSeconds, 60));
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall back to a short cooldown below.
+        }
+
+        retryDelay = TimeSpan.FromSeconds(3);
+        return true;
     }
 
 }

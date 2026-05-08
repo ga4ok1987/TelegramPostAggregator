@@ -17,11 +17,12 @@ public sealed class ChannelsController(IChannelTrackingService channelTrackingSe
     }
 
     [HttpPost]
-    [ProducesResponseType(typeof(ChannelDto), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ChannelDto>> Add([FromBody] AddTrackedChannelDto request, CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(ChannelTrackingResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ChannelTrackingResultDto), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ChannelTrackingResultDto>> Add([FromBody] AddTrackedChannelDto request, CancellationToken cancellationToken)
     {
-        var channel = await channelTrackingService.AddTrackedChannelAsync(request, cancellationToken);
-        return Ok(channel);
+        var result = await channelTrackingService.AddTrackedChannelAsync(request, cancellationToken);
+        return result.Success ? Ok(result) : BadRequest(result);
     }
 
     [HttpDelete]

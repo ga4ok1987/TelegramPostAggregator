@@ -241,7 +241,7 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
 
             if (!runtime.LogVerbosityConfigured)
             {
-                await runtime.Client.ExecuteAsync(new TdApi.SetLogVerbosityLevel { NewVerbosityLevel = 1 });
+                await runtime.Client.ExecuteAsync(new TdApi.SetLogVerbosityLevel { NewVerbosityLevel = 0 });
                 runtime.LogVerbosityConfigured = true;
             }
 

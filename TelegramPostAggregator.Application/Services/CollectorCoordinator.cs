@@ -19,6 +19,8 @@ public sealed class CollectorCoordinator(
     IOptions<CollectorOptions> options,
     ILogger<CollectorCoordinator> logger) : ICollectorCoordinator
 {
+    private static readonly TimeSpan RealtimeSyncGracePeriod = TimeSpan.FromMinutes(3);
+
     public async Task ProcessPendingSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
         var assignments = await collectorAccountRepository.GetPendingAssignmentsAsync(cancellationToken);
@@ -55,10 +57,17 @@ public sealed class CollectorCoordinator(
     public async Task SynchronizePostsAsync(CancellationToken cancellationToken = default)
     {
         var assignments = await collectorAccountRepository.GetAssignmentsForSynchronizationAsync(cancellationToken);
+        var nowUtc = DateTimeOffset.UtcNow;
         foreach (var assignment in assignments.Take(options.Value.PostSyncBatchSize))
         {
             try
             {
+                if (ShouldSkipFallbackSync(assignment, nowUtc))
+                {
+                    assignment.LastSyncedAtUtc = nowUtc;
+                    continue;
+                }
+
                 var posts = await telegramCollectorGateway.GetRecentPostsAsync(
                     assignment.CollectorAccount,
                     assignment.Channel,
@@ -170,5 +179,16 @@ public sealed class CollectorCoordinator(
         }
 
         return false;
+    }
+
+    private static bool ShouldSkipFallbackSync(ChannelCollectorAssignment assignment, DateTimeOffset nowUtc)
+    {
+        if (assignment.LastSyncedAtUtc is null || assignment.Channel.LastPostCollectedAtUtc is null)
+        {
+            return false;
+        }
+
+        return assignment.Channel.LastPostCollectedAtUtc > assignment.LastSyncedAtUtc.Value &&
+               nowUtc - assignment.Channel.LastPostCollectedAtUtc.Value <= RealtimeSyncGracePeriod;
     }
 }

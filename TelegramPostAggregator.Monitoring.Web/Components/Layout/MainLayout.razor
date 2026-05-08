@@ -8,10 +8,23 @@
             <p class="eyebrow">Bot Monitoring</p>
             <h1>Control Center</h1>
         </div>
+        <nav class="top-nav">
+            <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <AuthorizeView Policy="ManageClients">
+                <Authorized>
+                    <NavLink href="/clients">Clients</NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Policy="ManageAdminUsers">
+                <Authorized>
+                    <NavLink href="/admin/control-center">Control Center</NavLink>
+                </Authorized>
+            </AuthorizeView>
+        </nav>
         <AuthorizeView Context="authState">
             <Authorized>
                 <div class="user-panel">
-                    <span>@(authState.User.Identity?.Name ?? authState.User.FindFirstValue(ClaimTypes.Email))</span>
+                    <span>@(authState.User.FindFirstValue(ClaimTypes.GivenName) ?? authState.User.Identity?.Name ?? authState.User.FindFirstValue(ClaimTypes.Email))</span>
                     <a class="signout-link" href="/auth/logout">Sign out</a>
                 </div>
             </Authorized>

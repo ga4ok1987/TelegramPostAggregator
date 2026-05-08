@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -29,7 +30,21 @@ public sealed class TelegramBotGateway(
     public async Task<IReadOnlyList<TelegramBotUpdateDto>> GetUpdatesAsync(long offset, CancellationToken cancellationToken = default)
     {
         var url = $"getUpdates?timeout={Math.Max(1, _options.PollingTimeoutSeconds)}&offset={offset}";
-        var response = await CreateClient().GetFromJsonAsync<TelegramApiResponse<List<TelegramGetUpdate>>>(url, cancellationToken);
+        using var httpResponse = await CreateClient(useLocalBotApi: false).GetAsync(url, cancellationToken);
+        var responseBody = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
+        if (!httpResponse.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "Telegram getUpdates failed. StatusCode={StatusCode}, ResponseBody={ResponseBody}",
+                (int)httpResponse.StatusCode,
+                responseBody);
+            throw new HttpRequestException(
+                $"Telegram getUpdates failed with {(int)httpResponse.StatusCode}: {responseBody}",
+                null,
+                httpResponse.StatusCode);
+        }
+
+        var response = JsonSerializer.Deserialize<TelegramApiResponse<List<TelegramGetUpdate>>>(responseBody);
 
         return response?.Result?
             .Select(update => MapUpdate(update, logger))
@@ -59,6 +74,26 @@ public sealed class TelegramBotGateway(
 
         return PostJsonAsync("sendMessage", payload, cancellationToken);
     }
+
+    public Task<TelegramBotApiResultDto> SendInvoiceAsync(TelegramBotInvoiceDto invoice, CancellationToken cancellationToken = default) =>
+        PostJsonAsync("sendInvoice", new
+        {
+            chat_id = invoice.ChatId,
+            title = invoice.Title,
+            description = invoice.Description,
+            payload = invoice.Payload,
+            provider_token = string.Empty,
+            currency = invoice.Currency,
+            prices = new[]
+            {
+                new
+                {
+                    label = invoice.PriceLabel,
+                    amount = invoice.TotalAmount
+                }
+            },
+            subscription_period = invoice.SubscriptionPeriodSeconds
+        }, cancellationToken);
 
     public Task<TelegramBotApiResultDto> SendPhotoAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
         SendMediaAsync("sendPhoto", "photo", message, cancellationToken);
@@ -159,6 +194,14 @@ public sealed class TelegramBotGateway(
             text = string.IsNullOrWhiteSpace(text) ? "Готово" : text
         }, cancellationToken);
 
+    public Task<TelegramBotApiResultDto> AnswerPreCheckoutQueryAsync(string preCheckoutQueryId, bool ok, string? errorMessage, CancellationToken cancellationToken = default) =>
+        PostJsonAsync("answerPreCheckoutQuery", new
+        {
+            pre_checkout_query_id = preCheckoutQueryId,
+            ok,
+            error_message = errorMessage
+        }, cancellationToken);
+
     public async Task<bool> IsBotAdministratorAsync(string telegramChannelId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(telegramChannelId))
@@ -200,6 +243,12 @@ public sealed class TelegramBotGateway(
         return string.Equals(status, "administrator", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(status, "creator", StringComparison.OrdinalIgnoreCase);
     }
+
+    public Task<TelegramBotApiResultDto> LeaveChatAsync(string telegramChannelId, CancellationToken cancellationToken = default) =>
+        PostJsonAsync("leaveChat", new
+        {
+            chat_id = telegramChannelId
+        }, cancellationToken);
 
     public Task<TelegramBotApiResultDto> SetChatMenuButtonAsync(string text, string webAppUrl, CancellationToken cancellationToken = default)
     {
@@ -245,7 +294,9 @@ public sealed class TelegramBotGateway(
         TelegramBotMediaMessageDto message,
         CancellationToken cancellationToken)
     {
-        if (_options.UseLocalBotApiFileTransport && File.Exists(message.FilePath))
+        if (_options.UseLocalBotApiFileTransport &&
+            File.Exists(message.FilePath) &&
+            ShouldUseLocalPathTransport(fieldName, message.FilePath))
         {
             using var localContent = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -273,7 +324,8 @@ public sealed class TelegramBotGateway(
 
         using var stream = File.OpenRead(message.FilePath);
         using var fileContent = new StreamContent(stream);
-        content.Add(fileContent, fieldName, Path.GetFileName(message.FilePath));
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(ResolveUploadContentType(fieldName, message.FilePath));
+        content.Add(fileContent, fieldName, BuildUploadFileName(fieldName, message.FilePath));
 
         using var response = await CreateClient().PostAsync(endpoint, content, cancellationToken);
         return await ToResultAsync(response, cancellationToken);
@@ -281,7 +333,7 @@ public sealed class TelegramBotGateway(
 
     private async Task<TelegramBotApiResultDto> PostJsonAsync(string endpoint, object payload, CancellationToken cancellationToken)
     {
-        using var response = await CreateClient().PostAsJsonAsync(endpoint, payload, cancellationToken);
+        using var response = await CreateClient(useLocalBotApi: false).PostAsJsonAsync(endpoint, payload, cancellationToken);
         return await ToResultAsync(response, cancellationToken);
     }
 
@@ -323,7 +375,7 @@ public sealed class TelegramBotGateway(
 
     private async Task<string?> GetChatPhotoFileIdAsync(string telegramChatReference, CancellationToken cancellationToken)
     {
-        using var response = await CreateClient().PostAsJsonAsync("getChat", new
+        using var response = await CreateClient(useLocalBotApi: false).PostAsJsonAsync("getChat", new
         {
             chat_id = telegramChatReference
         }, cancellationToken);
@@ -361,7 +413,7 @@ public sealed class TelegramBotGateway(
 
     private async Task<string?> GetFilePathAsync(string fileId, CancellationToken cancellationToken)
     {
-        using var response = await CreateClient().PostAsJsonAsync("getFile", new
+        using var response = await CreateClient(useLocalBotApi: false).PostAsJsonAsync("getFile", new
         {
             file_id = fileId
         }, cancellationToken);
@@ -394,7 +446,7 @@ public sealed class TelegramBotGateway(
             return _botUserId.Value;
         }
 
-        var response = await CreateClient().GetFromJsonAsync<TelegramApiResponse<TelegramGetUser>>("getMe", cancellationToken);
+        var response = await CreateClient(useLocalBotApi: false).GetFromJsonAsync<TelegramApiResponse<TelegramGetUser>>("getMe", cancellationToken);
         if (response?.Ok != true || response.Result is null)
         {
             return null;
@@ -404,18 +456,18 @@ public sealed class TelegramBotGateway(
         return _botUserId.Value;
     }
 
-    private HttpClient CreateClient()
+    private HttpClient CreateClient(bool useLocalBotApi = true)
     {
         var client = httpClientFactory.CreateClient(nameof(TelegramBotGateway));
-        client.BaseAddress = new Uri($"{GetBotApiBaseUrl()}/bot{_options.BotToken}/");
+        client.BaseAddress = new Uri($"{GetBotApiBaseUrl(useLocalBotApi)}/bot{_options.BotToken}/");
         return client;
     }
 
     private Uri BuildFileUri(string filePath) =>
-        new($"{GetBotApiBaseUrl()}/file/bot{_options.BotToken}/{filePath.TrimStart('/')}");
+        new($"{GetBotApiBaseUrl(useLocalBotApi: true)}/file/bot{_options.BotToken}/{filePath.TrimStart('/')}");
 
-    private string GetBotApiBaseUrl() =>
-        string.IsNullOrWhiteSpace(_options.LocalBotApiBaseUrl)
+    private string GetBotApiBaseUrl(bool useLocalBotApi) =>
+        !useLocalBotApi || string.IsNullOrWhiteSpace(_options.LocalBotApiBaseUrl)
             ? DefaultBotApiBaseUrl
             : _options.LocalBotApiBaseUrl.TrimEnd('/');
 
@@ -542,10 +594,11 @@ public sealed class TelegramBotGateway(
                 update.ChannelPost.Chat.Id,
                 DateTimeOffset.UtcNow,
                 null,
+                null,
                 true);
         }
 
-        var sourceUser = update.Message?.From ?? update.CallbackQuery?.From;
+        var sourceUser = update.Message?.From ?? update.CallbackQuery?.From ?? update.PreCheckoutQuery?.From ?? update.MyChatMember?.From;
         var messageChat = update.Message?.Chat;
         if (sourceUser is null &&
             update.Message?.ChatShared is not null &&
@@ -561,10 +614,21 @@ public sealed class TelegramBotGateway(
             };
         }
 
-        var chatId = update.Message?.Chat?.Id ?? update.CallbackQuery?.Message?.Chat?.Id;
+        var chatId = update.Message?.Chat?.Id ?? update.CallbackQuery?.Message?.Chat?.Id ?? update.PreCheckoutQuery?.From?.Id ?? update.MyChatMember?.Chat?.Id;
         var text = update.Message?.Text;
         var callbackQueryId = update.CallbackQuery?.Id;
         var callbackData = update.CallbackQuery?.Data;
+
+        if (update.MyChatMember is not null)
+        {
+            logger.LogInformation(
+                "Received my_chat_member update. UpdateId={UpdateId}, ChatId={ChatId}, OldStatus={OldStatus}, NewStatus={NewStatus}, ChatType={ChatType}",
+                update.UpdateId,
+                update.MyChatMember.Chat?.Id,
+                update.MyChatMember.OldChatMember?.Status,
+                update.MyChatMember.NewChatMember?.Status,
+                update.MyChatMember.Chat?.Type);
+        }
 
         if (update.Message?.ChatShared is not null)
         {
@@ -609,7 +673,35 @@ public sealed class TelegramBotGateway(
                     update.Message.ChatShared.ChatId,
                     update.Message.ChatShared.Title,
                     update.Message.ChatShared.Username),
-            false);
+            update.MyChatMember is null
+                ? null
+                : new TelegramMyChatMemberDto(
+                    update.MyChatMember.Chat?.Id ?? 0,
+                    update.MyChatMember.Chat?.Type,
+                    update.MyChatMember.Chat?.Title,
+                    update.MyChatMember.Chat?.Username,
+                    update.MyChatMember.OldChatMember?.Status,
+                    update.MyChatMember.NewChatMember?.Status),
+            false,
+            update.PreCheckoutQuery is null
+                ? null
+                : new TelegramPreCheckoutQueryDto(
+                    update.PreCheckoutQuery.Id,
+                    update.PreCheckoutQuery.Currency ?? "XTR",
+                    update.PreCheckoutQuery.TotalAmount,
+                    update.PreCheckoutQuery.InvoicePayload ?? string.Empty),
+            update.Message?.SuccessfulPayment is null
+                ? null
+                : new TelegramSuccessfulPaymentDto(
+                    update.Message.SuccessfulPayment.Currency ?? "XTR",
+                    update.Message.SuccessfulPayment.TotalAmount,
+                    update.Message.SuccessfulPayment.InvoicePayload ?? string.Empty,
+                    update.Message.SuccessfulPayment.TelegramPaymentChargeId ?? string.Empty,
+                    update.Message.SuccessfulPayment.SubscriptionExpirationDateUnix.HasValue
+                        ? DateTimeOffset.FromUnixTimeSeconds(update.Message.SuccessfulPayment.SubscriptionExpirationDateUnix.Value)
+                        : null,
+                    update.Message.SuccessfulPayment.IsRecurring,
+                    update.Message.SuccessfulPayment.IsFirstRecurring));
     }
 
     private static void DisposeStreams(IEnumerable<Stream> streams)
@@ -629,6 +721,67 @@ public sealed class TelegramBotGateway(
             ".webp" => "image/webp",
             ".gif" => "image/gif",
             _ => "image/jpeg"
+        };
+    }
+
+    private static bool ShouldUseLocalPathTransport(string fieldName, string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+
+        return fieldName switch
+        {
+            "animation" => false,
+            "video" or "video_note" => extension is ".mp4" or ".m4v" or ".mov" or ".webm",
+            "audio" => extension is ".mp3" or ".m4a" or ".aac" or ".ogg" or ".wav",
+            "voice" => extension is ".ogg" or ".oga" or ".mp3",
+            _ => true
+        };
+    }
+
+    private static string BuildUploadFileName(string fieldName, string filePath)
+    {
+        var currentExtension = Path.GetExtension(filePath).ToLowerInvariant();
+        var currentName = Path.GetFileName(filePath);
+
+        var preferredExtension = fieldName switch
+        {
+            "photo" => ".jpg",
+            "video" or "animation" or "video_note" => ".mp4",
+            "audio" => ".mp3",
+            "voice" => ".ogg",
+            "document" => string.IsNullOrWhiteSpace(currentExtension) ? ".bin" : currentExtension,
+            _ => string.IsNullOrWhiteSpace(currentExtension) ? ".bin" : currentExtension
+        };
+
+        var hasUsableExtension = !string.IsNullOrWhiteSpace(currentExtension) &&
+                                 !string.Equals(currentExtension, ".txt", StringComparison.OrdinalIgnoreCase);
+
+        if (hasUsableExtension && !string.IsNullOrWhiteSpace(currentName))
+        {
+            return currentName;
+        }
+
+        return $"{fieldName}{preferredExtension}";
+    }
+
+    private static string ResolveUploadContentType(string fieldName, string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+
+        return fieldName switch
+        {
+            "photo" => InferImageMediaType(filePath),
+            "video" or "animation" or "video_note" => "video/mp4",
+            "audio" => extension switch
+            {
+                ".ogg" or ".oga" => "audio/ogg",
+                ".wav" => "audio/wav",
+                ".aac" => "audio/aac",
+                _ => "audio/mpeg"
+            },
+            "voice" => "audio/ogg",
+            "document" => "application/octet-stream",
+            _ => "application/octet-stream"
         };
     }
 
@@ -654,6 +807,12 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("callback_query")]
         public TelegramCallbackQuery? CallbackQuery { get; set; }
+
+        [JsonPropertyName("pre_checkout_query")]
+        public TelegramPreCheckoutQuery? PreCheckoutQuery { get; set; }
+
+        [JsonPropertyName("my_chat_member")]
+        public TelegramMyChatMemberUpdate? MyChatMember { get; set; }
     }
 
     private sealed class TelegramGetMessage
@@ -669,6 +828,9 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("chat_shared")]
         public TelegramSharedChatPayload? ChatShared { get; set; }
+
+        [JsonPropertyName("successful_payment")]
+        public TelegramSuccessfulPaymentPayload? SuccessfulPayment { get; set; }
     }
 
     private sealed class TelegramCallbackQuery
@@ -686,6 +848,24 @@ public sealed class TelegramBotGateway(
         public TelegramGetMessage? Message { get; set; }
     }
 
+    private sealed class TelegramPreCheckoutQuery
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("from")]
+        public TelegramGetUser? From { get; set; }
+
+        [JsonPropertyName("currency")]
+        public string? Currency { get; set; }
+
+        [JsonPropertyName("total_amount")]
+        public int TotalAmount { get; set; }
+
+        [JsonPropertyName("invoice_payload")]
+        public string? InvoicePayload { get; set; }
+    }
+
     private sealed class TelegramGetChat
     {
         [JsonPropertyName("id")]
@@ -696,6 +876,9 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("username")]
         public string? Username { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
 
         [JsonPropertyName("first_name")]
         public string? FirstName { get; set; }
@@ -735,5 +918,50 @@ public sealed class TelegramBotGateway(
 
         [JsonPropertyName("username")]
         public string? Username { get; set; }
+    }
+
+    private sealed class TelegramSuccessfulPaymentPayload
+    {
+        [JsonPropertyName("currency")]
+        public string? Currency { get; set; }
+
+        [JsonPropertyName("total_amount")]
+        public int TotalAmount { get; set; }
+
+        [JsonPropertyName("invoice_payload")]
+        public string? InvoicePayload { get; set; }
+
+        [JsonPropertyName("telegram_payment_charge_id")]
+        public string? TelegramPaymentChargeId { get; set; }
+
+        [JsonPropertyName("subscription_expiration_date")]
+        public long? SubscriptionExpirationDateUnix { get; set; }
+
+        [JsonPropertyName("is_recurring")]
+        public bool IsRecurring { get; set; }
+
+        [JsonPropertyName("is_first_recurring")]
+        public bool IsFirstRecurring { get; set; }
+    }
+
+    private sealed class TelegramMyChatMemberUpdate
+    {
+        [JsonPropertyName("from")]
+        public TelegramGetUser? From { get; set; }
+
+        [JsonPropertyName("chat")]
+        public TelegramGetChat? Chat { get; set; }
+
+        [JsonPropertyName("old_chat_member")]
+        public TelegramChatMemberState? OldChatMember { get; set; }
+
+        [JsonPropertyName("new_chat_member")]
+        public TelegramChatMemberState? NewChatMember { get; set; }
+    }
+
+    private sealed class TelegramChatMemberState
+    {
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
     }
 }

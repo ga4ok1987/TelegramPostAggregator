@@ -1,6 +1,9 @@
 using TelegramPostAggregator.Application.Abstractions.Services;
+using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.DTOs;
 using TelegramPostAggregator.Application.Services.Bot;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
 namespace TelegramPostAggregator.Application.Services;
@@ -8,20 +11,39 @@ namespace TelegramPostAggregator.Application.Services;
 public sealed class BotUpdateProcessor(
     IUserService userService,
     IChannelTrackingService channelTrackingService,
+    IBillingService billingService,
     IMiniAppChannelService miniAppChannelService,
+    ITelegramBotGateway telegramBotGateway,
+    IServiceScopeFactory scopeFactory,
     BotLocalizationCatalog localizationCatalog,
     BotMenuFactory menuFactory,
-    BotMessageCatalog messages) : IBotUpdateProcessor
+    BotMessageCatalog messages,
+    ILogger<BotUpdateProcessor> logger) : IBotUpdateProcessor
 {
     private static readonly Regex ManagedChannelReferenceRegex = new(
-        @"^\s*(?:https?://)?t\.me/[A-Za-z0-9_+/-]+\s*$|^\s*@[A-Za-z0-9_]{4,}\s*$",
+        @"^\s*(?:https?://)?t\.me/[A-Za-z0-9_+/-]+(?:[/?#][^\s]*)?\s*['"",.;:!?)}\]]*\s*$|^\s*@[A-Za-z0-9_]{4,}\s*['"",.;:!?)}\]]*\s*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly TimeSpan SharedChatFollowupWindow = TimeSpan.FromSeconds(15);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, (DateTimeOffset RegisteredAtUtc, string? ChannelTitle)> RecentSharedChats = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> RecentSharedChannelUpdates = new();
 
     public async Task<BotCommandResultDto> ProcessAsync(TelegramBotUpdateDto update, CancellationToken cancellationToken = default)
     {
         if (update.IsChannelPost)
         {
             return await ProcessManagedChannelPostAsync(update, cancellationToken);
+        }
+
+        if (update.PreCheckoutQuery is not null)
+        {
+            var decision = await billingService.ValidatePreCheckoutAsync(update.PreCheckoutQuery, cancellationToken);
+            return new BotCommandResultDto(
+                decision.IsApproved,
+                string.Empty,
+                PreCheckoutResponse: new TelegramPreCheckoutResponseDto(
+                    update.PreCheckoutQuery.Id,
+                    decision.IsApproved,
+                    decision.ErrorMessage));
         }
 
         if (update.User is null)
@@ -33,6 +55,18 @@ public sealed class BotUpdateProcessor(
         var user = await userService.UpsertTelegramUserAsync(sourceUser, cancellationToken);
         var languageCode = localizationCatalog.NormalizeLanguageCode(user.PreferredLanguageCode);
 
+        if (update.SuccessfulPayment is not null)
+        {
+            var paymentResult = await billingService.ProcessSuccessfulPaymentAsync(sourceUser.TelegramUserId, update.SuccessfulPayment, cancellationToken);
+            return new BotCommandResultDto(paymentResult.Success, paymentResult.Message, menuFactory.BuildMainMenu(languageCode));
+        }
+
+        if (update.MyChatMember is not null)
+        {
+            await miniAppChannelService.SyncBotMembershipAsync(sourceUser.TelegramUserId, update.MyChatMember, cancellationToken);
+            return new BotCommandResultDto(true, string.Empty, menuFactory.BuildMainMenu(languageCode));
+        }
+
         if (!string.IsNullOrWhiteSpace(update.CallbackData))
         {
             return await ProcessCallbackAsync(update, languageCode, cancellationToken);
@@ -40,14 +74,23 @@ public sealed class BotUpdateProcessor(
 
         if (update.SharedChat is not null)
         {
-            var registration = await miniAppChannelService.RegisterSharedChannelAsync(
-                sourceUser.TelegramUserId,
-                update.SharedChat,
-                cancellationToken);
+            var sharedChatKey = $"{sourceUser.TelegramUserId}:{update.SharedChat.ChatId}";
+            var now = DateTimeOffset.UtcNow;
+            if (RecentSharedChannelUpdates.TryGetValue(sharedChatKey, out var lastSeenAtUtc) &&
+                now - lastSeenAtUtc < TimeSpan.FromSeconds(30))
+            {
+                return new BotCommandResultDto(true, string.Empty, menuFactory.BuildMainMenu(languageCode));
+            }
+
+            RecentSharedChannelUpdates[sharedChatKey] = now;
+            RecentSharedChats[sourceUser.TelegramUserId] = (DateTimeOffset.UtcNow, update.SharedChat.Title?.Trim());
+            _ = Task.Run(
+                () => RegisterSharedChannelInBackgroundAsync(sourceUser.TelegramUserId, update.SharedChat),
+                CancellationToken.None);
 
             return new BotCommandResultDto(
-                registration.Success,
-                registration.Message,
+                true,
+                "Запит прийнято. Обробляю канал у фоновому режимі. Якщо канал щойно створено, додайте бота адміністратором і ще раз натисніть «Додати мій канал / додати адміна».",
                 menuFactory.BuildMainMenu(languageCode));
         }
 
@@ -55,6 +98,14 @@ public sealed class BotUpdateProcessor(
         if (string.IsNullOrWhiteSpace(text))
         {
             return new BotCommandResultDto(true, messages.EmptyUpdatePrompt(languageCode), menuFactory.BuildMainMenu(languageCode));
+        }
+
+        if (ShouldIgnoreSharedChatFollowup(sourceUser.TelegramUserId, text))
+        {
+            return new BotCommandResultDto(
+                true,
+                messages.ManagedChannelsPrompt(),
+                menuFactory.BuildMainMenu(languageCode));
         }
 
         if (text.StartsWith("/start", StringComparison.OrdinalIgnoreCase) ||
@@ -84,6 +135,18 @@ public sealed class BotUpdateProcessor(
             (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.Faq))
         {
             return new BotCommandResultDto(true, messages.BuildBotFaqMessage(languageCode), menuFactory.BuildMainMenu(languageCode));
+        }
+
+        if (text.StartsWith("/plans", StringComparison.OrdinalIgnoreCase) ||
+            (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.Plans))
+        {
+            return await BuildPlansResultAsync(sourceUser, languageCode, cancellationToken);
+        }
+
+        if (text.StartsWith("/support", StringComparison.OrdinalIgnoreCase) ||
+            (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.Support))
+        {
+            return await BuildSupportResultAsync(languageCode, cancellationToken);
         }
 
         if (localizationCatalog.TryResolveMainMenuAction(text, out menuAction) && menuAction == BotMainMenuAction.DeleteAll)
@@ -147,11 +210,15 @@ public sealed class BotUpdateProcessor(
             return new BotCommandResultDto(true, messages.BuildSubscriptionDisabledMessage(parts[1], languageCode), menuFactory.BuildMainMenu(languageCode));
         }
 
-        await channelTrackingService.AddTrackedChannelAsync(
+        var addResult = await channelTrackingService.AddTrackedChannelAsync(
             new AddTrackedChannelDto(sourceUser.TelegramUserId, sourceUser.TelegramUsername, sourceUser.DisplayName, text),
             cancellationToken);
 
-        return new BotCommandResultDto(true, messages.BuildSubscriptionAddedMessage(text, languageCode), menuFactory.BuildMainMenu(languageCode));
+        var addMessage = addResult.Success
+            ? messages.BuildSubscriptionAddedMessage(text, languageCode)
+            : addResult.Message;
+
+        return new BotCommandResultDto(addResult.Success, addMessage, menuFactory.BuildMainMenu(languageCode));
     }
 
     private async Task<BotCommandResultDto> ProcessManagedChannelPostAsync(TelegramBotUpdateDto update, CancellationToken cancellationToken)
@@ -217,6 +284,16 @@ public sealed class BotUpdateProcessor(
                 messages.StartCallbackNotice(languageCode));
         }
 
+        if (callbackData == "menu:plans")
+        {
+            return await BuildPlansResultAsync(sourceUser, languageCode, cancellationToken);
+        }
+
+        if (callbackData == "menu:support")
+        {
+            return await BuildSupportResultAsync(languageCode, cancellationToken);
+        }
+
         if (callbackData.StartsWith("language:set:", StringComparison.Ordinal))
         {
             var selectedLanguageCode = localizationCatalog.NormalizeLanguageCode(callbackData["language:set:".Length..]);
@@ -228,6 +305,36 @@ public sealed class BotUpdateProcessor(
                 messages.BuildLanguageUpdatedMessage(selectedLanguageCode, updatedLanguageCode),
                 menuFactory.BuildMainMenu(updatedLanguageCode),
                 messages.StartCallbackNotice(updatedLanguageCode));
+        }
+
+        if (callbackData.StartsWith("billing:plan:", StringComparison.Ordinal))
+        {
+            var planCode = callbackData["billing:plan:".Length..];
+            var invoiceResult = await billingService.CreatePlanInvoiceAsync(
+                new BillingInvoiceRequestDto(sourceUser.TelegramUserId, sourceUser.TelegramUsername, sourceUser.DisplayName, planCode),
+                cancellationToken);
+
+            return new BotCommandResultDto(
+                invoiceResult.Success,
+                invoiceResult.Message,
+                menuFactory.BuildMainMenu(languageCode),
+                invoiceResult.Success ? messages.StartCallbackNotice(languageCode) : messages.ErrorNotice(languageCode),
+                invoiceResult.Invoice);
+        }
+
+        if (callbackData.StartsWith("billing:donation:", StringComparison.Ordinal))
+        {
+            var donationCode = callbackData["billing:donation:".Length..];
+            var invoiceResult = await billingService.CreateDonationInvoiceAsync(
+                new BillingInvoiceRequestDto(sourceUser.TelegramUserId, sourceUser.TelegramUsername, sourceUser.DisplayName, donationCode),
+                cancellationToken);
+
+            return new BotCommandResultDto(
+                invoiceResult.Success,
+                invoiceResult.Message,
+                menuFactory.BuildMainMenu(languageCode),
+                invoiceResult.Success ? messages.StartCallbackNotice(languageCode) : messages.ErrorNotice(languageCode),
+                invoiceResult.Invoice);
         }
 
         if (callbackData == "pause_all:confirm")
@@ -312,6 +419,77 @@ public sealed class BotUpdateProcessor(
             messages.SubscriptionsListUpdatedNotice(languageCode));
     }
 
+    private async Task<BotCommandResultDto> BuildPlansResultAsync(BotUserSnapshotDto sourceUser, string languageCode, CancellationToken cancellationToken)
+    {
+        var plans = await billingService.ListAvailablePlansAsync(cancellationToken);
+        var usage = await billingService.GetSubscriptionUsageAsync(sourceUser.TelegramUserId, cancellationToken);
+        return new BotCommandResultDto(
+            true,
+            messages.BuildPlansMessage(plans, usage, languageCode),
+            menuFactory.BuildPlansMenu(plans, languageCode));
+    }
+
+    private async Task<BotCommandResultDto> BuildSupportResultAsync(string languageCode, CancellationToken cancellationToken)
+    {
+        var donations = await billingService.ListAvailableDonationOptionsAsync(cancellationToken);
+        return new BotCommandResultDto(
+            true,
+            messages.BuildSupportProjectMessage(languageCode),
+            menuFactory.BuildSupportMenu(donations, languageCode));
+    }
+
     private static bool TryParseChannelId(string value, out Guid channelId) =>
         Guid.TryParse(value, out channelId);
+
+    private async Task RegisterSharedChannelInBackgroundAsync(long telegramUserId, TelegramSharedChatDto sharedChat)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var registrationService = scope.ServiceProvider.GetRequiredService<IMiniAppChannelService>();
+            var result = await registrationService.RegisterSharedChannelAsync(telegramUserId, sharedChat, CancellationToken.None);
+
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                await telegramBotGateway.SendMessageAsync(
+                    new TelegramBotOutboundMessageDto(
+                        telegramUserId,
+                        result.Message,
+                        ParseMode: null,
+                        DisableWebPagePreview: true),
+                    CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Background shared channel registration failed. TelegramUserId={TelegramUserId}, SharedChatId={SharedChatId}",
+                telegramUserId,
+                sharedChat.ChatId);
+        }
+    }
+
+    private bool ShouldIgnoreSharedChatFollowup(long telegramUserId, string text)
+    {
+        if (!RecentSharedChats.TryGetValue(telegramUserId, out var state))
+        {
+            return false;
+        }
+
+        if (DateTimeOffset.UtcNow - state.RegisteredAtUtc > SharedChatFollowupWindow)
+        {
+            RecentSharedChats.TryRemove(telegramUserId, out _);
+            return false;
+        }
+
+        var normalizedText = text.Trim();
+        if (localizationCatalog.IsManagedChannelsRequestLabel(normalizedText))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(state.ChannelTitle) &&
+               string.Equals(normalizedText, state.ChannelTitle, StringComparison.OrdinalIgnoreCase);
+    }
 }

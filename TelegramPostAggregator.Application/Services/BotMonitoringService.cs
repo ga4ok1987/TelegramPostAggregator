@@ -10,12 +10,17 @@ public sealed class BotMonitoringService : IBotMonitoringService
 {
     private readonly IReadOnlyDictionary<string, IBotStatusProbe> _probes;
     private readonly IOptionsMonitor<BotMonitoringOptions> _optionsMonitor;
+    private readonly IServerMetricsProvider _serverMetricsProvider;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastSuccessfulChecks = new(StringComparer.OrdinalIgnoreCase);
 
-    public BotMonitoringService(IEnumerable<IBotStatusProbe> probes, IOptionsMonitor<BotMonitoringOptions> optionsMonitor)
+    public BotMonitoringService(
+        IEnumerable<IBotStatusProbe> probes,
+        IOptionsMonitor<BotMonitoringOptions> optionsMonitor,
+        IServerMetricsProvider serverMetricsProvider)
     {
         _probes = probes.ToDictionary(probe => probe.ProbeType, StringComparer.OrdinalIgnoreCase);
         _optionsMonitor = optionsMonitor;
+        _serverMetricsProvider = serverMetricsProvider;
     }
 
     public async Task<MonitoringDashboardDto> GetDashboardAsync(CancellationToken cancellationToken = default)
@@ -24,12 +29,14 @@ public sealed class BotMonitoringService : IBotMonitoringService
         var bots = options.Bots ?? [];
 
         var statuses = await Task.WhenAll(bots.Select(bot => BuildStatusAsync(bot, cancellationToken)));
+        var serverStatus = await _serverMetricsProvider.GetServerStatusAsync(cancellationToken);
 
         return new MonitoringDashboardDto(
             options.AllowedEmail,
             Math.Max(5, options.RefreshIntervalSeconds),
             DateTimeOffset.UtcNow,
-            statuses.OrderBy(status => status.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray());
+            statuses.OrderBy(status => status.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray(),
+            serverStatus);
     }
 
     private async Task<BotStatusDto> BuildStatusAsync(BotDefinitionOptions bot, CancellationToken cancellationToken)
