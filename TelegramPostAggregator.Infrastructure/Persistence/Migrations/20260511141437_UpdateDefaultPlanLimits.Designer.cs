@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TelegramPostAggregator.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TelegramPostAggregator.Infrastructure.Persistence;
 namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AggregatorDbContext))]
-    partial class AggregatorDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260511141437_UpdateDefaultPlanLimits")]
+    partial class UpdateDefaultPlanLimits
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -93,11 +96,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
-
-                    b.Property<int>("ExtraManagedChannelSlots")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
 
                     b.Property<int>("ExtraSubscriptionSlots")
                         .ValueGeneratedOnAdd()
@@ -580,11 +578,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
-
-                    b.Property<int>("ManagedChannelLimit")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
 
                     b.Property<int>("PriceStars")
                         .HasColumnType("integer");

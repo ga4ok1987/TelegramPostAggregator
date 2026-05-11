@@ -7,6 +7,7 @@ public sealed class SubscriptionPlanDefinition : BaseEntity
     public string Code { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public int ChannelLimit { get; set; }
+    public int ManagedChannelLimit { get; set; }
     public int PriceStars { get; set; }
     public int? DurationDays { get; set; }
     public bool IsEnabled { get; set; } = true;

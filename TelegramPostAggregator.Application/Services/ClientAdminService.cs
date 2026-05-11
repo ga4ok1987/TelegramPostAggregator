@@ -223,24 +223,20 @@ public sealed class ClientAdminService(
     }
 
     public async Task<bool> SetExtraSubscriptionSlotsAsync(Guid userId, int extraSubscriptionSlots, CancellationToken cancellationToken = default)
-    {
-        var user = await appUserRepository.GetByIdAsync(userId, cancellationToken);
-        if (user is null)
-        {
-            return false;
-        }
+        => await SetExtraAllowanceAsync(
+            userId,
+            extraSubscriptionSlots,
+            user => user.ExtraSubscriptionSlots,
+            static (user, value) => user.ExtraSubscriptionSlots = value,
+            cancellationToken);
 
-        var normalizedValue = Math.Max(extraSubscriptionSlots, 0);
-        if (user.ExtraSubscriptionSlots == normalizedValue)
-        {
-            return true;
-        }
-
-        user.ExtraSubscriptionSlots = normalizedValue;
-        user.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        await appUserRepository.SaveChangesAsync(cancellationToken);
-        return true;
-    }
+    public async Task<bool> SetExtraManagedChannelSlotsAsync(Guid userId, int extraManagedChannelSlots, CancellationToken cancellationToken = default)
+        => await SetExtraAllowanceAsync(
+            userId,
+            extraManagedChannelSlots,
+            user => user.ExtraManagedChannelSlots,
+            static (user, value) => user.ExtraManagedChannelSlots = value,
+            cancellationToken);
 
     private static AdminClientDto MapSummary(Domain.Entities.AppUser user)
     {
@@ -291,6 +287,9 @@ public sealed class ClientAdminService(
             usage.ChannelLimit,
             usage.UsedChannels,
             user.ExtraSubscriptionSlots,
+            usage.ManagedChannelLimit,
+            usage.UsedManagedChannels,
+            user.ExtraManagedChannelSlots,
             usage.ExpiresAtUtc,
             channels.Length,
             channels.Count(channel => channel.IsActive),
@@ -299,5 +298,30 @@ public sealed class ClientAdminService(
             user.ChannelSubscriptions.Count,
             user.ChannelSubscriptions.Count(subscription => subscription.IsActive),
             channels);
+    }
+
+    private async Task<bool> SetExtraAllowanceAsync(
+        Guid userId,
+        int requestedValue,
+        Func<Domain.Entities.AppUser, int> currentValueSelector,
+        Action<Domain.Entities.AppUser, int> applyValue,
+        CancellationToken cancellationToken)
+    {
+        var user = await appUserRepository.GetByIdAsync(userId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        var normalizedValue = Math.Max(requestedValue, 0);
+        if (currentValueSelector(user) == normalizedValue)
+        {
+            return true;
+        }
+
+        applyValue(user, normalizedValue);
+        user.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await appUserRepository.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }

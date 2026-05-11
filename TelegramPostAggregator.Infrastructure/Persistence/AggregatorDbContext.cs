@@ -42,6 +42,7 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.PreferredLanguageCode).HasMaxLength(16);
             entity.Property(x => x.SubscriptionPlanCode).HasMaxLength(64).HasDefaultValue("free");
             entity.Property(x => x.ExtraSubscriptionSlots).HasDefaultValue(0);
+            entity.Property(x => x.ExtraManagedChannelSlots).HasDefaultValue(0);
         });
 
         modelBuilder.Entity<AdminUser>(entity =>
@@ -154,6 +155,7 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.HasIndex(x => x.Code).IsUnique();
             entity.Property(x => x.Code).HasMaxLength(64);
             entity.Property(x => x.DisplayName).HasMaxLength(128);
+            entity.Property(x => x.ManagedChannelLimit).HasDefaultValue(1);
         });
 
         modelBuilder.Entity<DonationOption>(entity =>

@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Infrastructure.Options;
@@ -325,8 +326,17 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
-        await subscriptionRepository.SaveChangesAsync(cancellationToken);
-        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await subscriptionRepository.SaveChangesAsync(cancellationToken);
+            await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Feed delivery state save hit a concurrency race. The iteration will continue and reconcile on the next pass.");
+        }
     }
 
     private static async Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> FilterDirectSubscriptionsForCurrentPlanAsync(

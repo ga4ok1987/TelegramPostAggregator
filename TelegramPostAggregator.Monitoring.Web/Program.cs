@@ -39,7 +39,6 @@ builder.Services.AddMonitoringInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IServerMetricsProvider, ServerMetricsProvider>();
 builder.Services.AddScoped<DashboardViewModel>();
 builder.Services.AddScoped<MiniAppViewModel>();
-builder.Services.AddScoped<ClientAdminViewModel>();
 
 var loginOptions = builder.Configuration.GetSection(SimpleLoginOptions.SectionName).Get<SimpleLoginOptions>()
     ?? new SimpleLoginOptions();
@@ -206,6 +205,12 @@ clientAdminApi.MapPatch("/clients/{userId:guid}/subscription-allowance", async (
     return updated ? Results.NoContent() : Results.NotFound();
 });
 
+clientAdminApi.MapPatch("/clients/{userId:guid}/managed-channel-allowance", async (Guid userId, AdminClientManagedChannelAllowanceRequest request, IClientAdminService service, CancellationToken cancellationToken) =>
+{
+    var updated = await service.SetExtraManagedChannelSlotsAsync(userId, request.ExtraManagedChannelSlots, cancellationToken);
+    return updated ? Results.NoContent() : Results.NotFound();
+});
+
 clientAdminApi.MapGet("/clients/{userId:guid}/bot-subscriptions", async (Guid userId, int? page, int? pageSize, IClientAdminService service, CancellationToken cancellationToken) =>
 {
     var result = await service.GetBotSubscriptionsPageAsync(userId, page ?? 1, Math.Clamp(pageSize ?? 10, 1, 100), cancellationToken);
@@ -284,6 +289,7 @@ billingAdminApi.MapPatch("/plans/{planId:guid}", async (Guid planId, AdminPlanUp
         planId,
         request.DisplayName,
         request.ChannelLimit,
+        request.ManagedChannelLimit,
         request.PriceStars,
         request.DurationDays,
         request.IsEnabled,

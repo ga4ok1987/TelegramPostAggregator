@@ -5,6 +5,7 @@ public sealed record SubscriptionPlanDefinitionDto(
     string Code,
     string DisplayName,
     int ChannelLimit,
+    int ManagedChannelLimit,
     int PriceStars,
     int? DurationDays,
     bool IsEnabled,
@@ -24,6 +25,8 @@ public sealed record SubscriptionUsageDto(
     string CurrentPlanName,
     int ChannelLimit,
     int UsedChannels,
+    int ManagedChannelLimit,
+    int UsedManagedChannels,
     DateTimeOffset? ExpiresAtUtc,
     bool IsPaidPlan);
 

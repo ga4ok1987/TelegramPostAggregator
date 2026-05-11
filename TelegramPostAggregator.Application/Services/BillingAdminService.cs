@@ -20,7 +20,7 @@ public sealed class BillingAdminService(
             donations.OrderBy(x => x.SortOrder).Select(MapDonation).ToArray());
     }
 
-    public async Task<SubscriptionPlanDefinitionDto?> UpdatePlanAsync(Guid planId, string displayName, int channelLimit, int priceStars, int? durationDays, bool isEnabled, int sortOrder, CancellationToken cancellationToken = default)
+    public async Task<SubscriptionPlanDefinitionDto?> UpdatePlanAsync(Guid planId, string displayName, int channelLimit, int managedChannelLimit, int priceStars, int? durationDays, bool isEnabled, int sortOrder, CancellationToken cancellationToken = default)
     {
         await EnsureDefaultsAsync(cancellationToken);
 
@@ -32,6 +32,7 @@ public sealed class BillingAdminService(
 
         plan.DisplayName = displayName.Trim();
         plan.ChannelLimit = Math.Max(channelLimit, 1);
+        plan.ManagedChannelLimit = Math.Max(managedChannelLimit, 1);
         plan.PriceStars = Math.Max(priceStars, 0);
         plan.DurationDays = plan.IsDefaultPlan ? null : 30;
         plan.IsEnabled = plan.IsDefaultPlan || isEnabled;
@@ -64,27 +65,10 @@ public sealed class BillingAdminService(
 
     private async Task EnsureDefaultsAsync(CancellationToken cancellationToken)
     {
-        var plans = await subscriptionPlanRepository.ListAsync(cancellationToken);
-        if (plans.Count == 0)
-        {
-            foreach (var plan in BillingDefaults.CreatePlans())
-            {
-                await subscriptionPlanRepository.AddAsync(plan, cancellationToken);
-            }
-
-            await subscriptionPlanRepository.SaveChangesAsync(cancellationToken);
-        }
-
-        var donations = await donationOptionRepository.ListAsync(cancellationToken);
-        if (donations.Count == 0)
-        {
-            foreach (var donation in BillingDefaults.CreateDonations())
-            {
-                await donationOptionRepository.AddAsync(donation, cancellationToken);
-            }
-
-            await donationOptionRepository.SaveChangesAsync(cancellationToken);
-        }
+        await BillingDefaultsSeeder.EnsureAsync(
+            subscriptionPlanRepository,
+            donationOptionRepository,
+            cancellationToken);
     }
 
     private static SubscriptionPlanDefinitionDto MapPlan(Domain.Entities.SubscriptionPlanDefinition plan) =>
@@ -93,6 +77,7 @@ public sealed class BillingAdminService(
             plan.Code,
             plan.DisplayName,
             plan.ChannelLimit,
+            plan.ManagedChannelLimit,
             plan.PriceStars,
             plan.DurationDays,
             plan.IsEnabled,

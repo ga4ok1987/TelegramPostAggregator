@@ -314,6 +314,34 @@ a {
     padding: 18px;
 }
 
+.allowance-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.allowance-box {
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.allowance-label {
+    display: block;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+}
+
+.allowance-box strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 1.1rem;
+}
+
 .inline-form {
     display: flex;
     gap: 10px;
@@ -405,6 +433,37 @@ a {
 
 .row-top {
     align-items: flex-start;
+}
+
+.mini-channel-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.mini-channel-avatar {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    flex: 0 0 54px;
+    font-weight: 700;
+    color: #fff;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,0.24), transparent 35%),
+        linear-gradient(135deg, rgba(95, 151, 255, 0.95), rgba(29, 182, 125, 0.85));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.mini-channel-copy {
+    min-width: 0;
+}
+
+.mini-channel-copy strong,
+.mini-channel-copy p {
+    overflow-wrap: anywhere;
 }
 
 .row-actions {

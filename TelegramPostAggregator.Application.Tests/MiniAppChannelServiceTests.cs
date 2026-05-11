@@ -23,6 +23,7 @@ public sealed class MiniAppChannelServiceTests
             ]),
             new FakeManagedChannelSubscriptionRepository([]),
             new FakeAppUserRepository(CreateUser()),
+            new FakeBillingService(),
             new FakePostRepository(),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
@@ -66,6 +67,7 @@ public sealed class MiniAppChannelServiceTests
                 }
             ]),
             new FakeAppUserRepository(user),
+            new FakeBillingService(),
             new FakePostRepository(),
             new FakeTelegramBotGateway(
                 new Dictionary<string, bool>
@@ -97,6 +99,7 @@ public sealed class MiniAppChannelServiceTests
             repository,
             new FakeManagedChannelSubscriptionRepository([]),
             new FakeAppUserRepository(CreateUser()),
+            new FakeBillingService(),
             new FakePostRepository(),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
@@ -129,6 +132,7 @@ public sealed class MiniAppChannelServiceTests
             repository,
             new FakeManagedChannelSubscriptionRepository([]),
             new FakeAppUserRepository(user),
+            new FakeBillingService(),
             new FakePostRepository(),
             gateway,
             new FakeServiceScopeFactory(new FakeServiceProvider()),
@@ -170,6 +174,7 @@ public sealed class MiniAppChannelServiceTests
                 }
             ]),
             new FakeAppUserRepository(user),
+            new FakeBillingService(),
             new FakePostRepository(),
             new FakeTelegramBotGateway(new Dictionary<string, bool>
             {
@@ -295,6 +300,36 @@ public sealed class MiniAppChannelServiceTests
         public Task AddAsync(AppUser user, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeBillingService : IBillingService
+    {
+        public Task<SubscriptionUsageDto> GetSubscriptionUsageAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SubscriptionUsageDto("free", "Free", 1, 0, 1, 0, null, false));
+
+        public Task<ChannelTrackingResultDto> CanAddChannelAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChannelTrackingResultDto(true, string.Empty));
+
+        public Task<ChannelTrackingResultDto> CanAddManagedChannelAsync(long telegramUserId, long telegramChatId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChannelTrackingResultDto(true, string.Empty));
+
+        public Task<IReadOnlyList<SubscriptionPlanDefinitionDto>> ListAvailablePlansAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<SubscriptionPlanDefinitionDto>>([]);
+
+        public Task<IReadOnlyList<DonationOptionDto>> ListAvailableDonationOptionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<DonationOptionDto>>([]);
+
+        public Task<BillingInvoiceResultDto> CreatePlanInvoiceAsync(BillingInvoiceRequestDto request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new BillingInvoiceResultDto(false, "n/a"));
+
+        public Task<BillingInvoiceResultDto> CreateDonationInvoiceAsync(BillingInvoiceRequestDto request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new BillingInvoiceResultDto(false, "n/a"));
+
+        public Task<PreCheckoutDecisionDto> ValidatePreCheckoutAsync(TelegramPreCheckoutQueryDto query, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PreCheckoutDecisionDto(true));
+
+        public Task<PaymentProcessingResultDto> ProcessSuccessfulPaymentAsync(long telegramUserId, TelegramSuccessfulPaymentDto payment, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PaymentProcessingResultDto(true, "ok"));
     }
 
     private sealed class FakeTelegramBotGateway(

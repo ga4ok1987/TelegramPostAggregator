@@ -6,6 +6,7 @@ public interface IBillingService
 {
     Task<SubscriptionUsageDto> GetSubscriptionUsageAsync(long telegramUserId, CancellationToken cancellationToken = default);
     Task<ChannelTrackingResultDto> CanAddChannelAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default);
+    Task<ChannelTrackingResultDto> CanAddManagedChannelAsync(long telegramUserId, long telegramChatId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SubscriptionPlanDefinitionDto>> ListAvailablePlansAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DonationOptionDto>> ListAvailableDonationOptionsAsync(CancellationToken cancellationToken = default);
     Task<BillingInvoiceResultDto> CreatePlanInvoiceAsync(BillingInvoiceRequestDto request, CancellationToken cancellationToken = default);

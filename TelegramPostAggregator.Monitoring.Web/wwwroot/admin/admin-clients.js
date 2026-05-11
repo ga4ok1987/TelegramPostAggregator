@@ -35,6 +35,25 @@
       .replaceAll("'", '&#39;');
   }
 
+  function buildInitials(value) {
+    const source = String(value ?? '').trim();
+    if (!source) {
+      return 'CH';
+    }
+
+    const parts = source
+      .replace(/^@/, '')
+      .split(/[\s._-]+/)
+      .filter(Boolean)
+      .slice(0, 2);
+
+    if (parts.length === 0) {
+      return source.slice(0, 2).toUpperCase();
+    }
+
+    return parts.map(part => part[0]).join('').toUpperCase();
+  }
+
   function setError(message) {
     if (!message) {
       els.errorBanner.textContent = '';
@@ -290,8 +309,11 @@
 
       <dl class="stats-grid">
         <div class="stat-box"><dt>Plan</dt><dd>${escapeHtml(detail.currentPlanName)}</dd></div>
-        <div class="stat-box"><dt>Subscription limit</dt><dd>${detail.usedSubscriptionsCount} / ${detail.subscriptionLimit}</dd></div>
-        <div class="stat-box"><dt>Extra slots</dt><dd>${detail.extraSubscriptionSlots}</dd></div>
+        <div class="stat-box"><dt>Source channel limit</dt><dd>${detail.usedSubscriptionsCount} / ${detail.subscriptionLimit}</dd></div>
+        <div class="stat-box"><dt>Extra source slots</dt><dd>${detail.extraSubscriptionSlots}</dd></div>
+        <div class="stat-box"><dt>Effective total limit</dt><dd>${detail.subscriptionLimit}</dd></div>
+        <div class="stat-box"><dt>Owned channel limit</dt><dd>${detail.usedManagedChannelsCount} / ${detail.managedChannelLimit}</dd></div>
+        <div class="stat-box"><dt>Extra owned slots</dt><dd>${detail.extraManagedChannelSlots}</dd></div>
         <div class="stat-box"><dt>Plan expires</dt><dd>${formatDate(detail.subscriptionExpiresAtUtc) || 'Free plan'}</dd></div>
         <div class="stat-box"><dt>Language</dt><dd>${escapeHtml(detail.preferredLanguageCode)}</dd></div>
         <div class="stat-box"><dt>Joined</dt><dd>${formatDate(detail.createdAtUtc)}</dd></div>
@@ -304,13 +326,61 @@
         <section class="section-card">
           <div class="section-head">
             <div>
-              <h3>Subscription allowance</h3>
-              <p class="section-description">Add extra source-channel slots for this user on top of the current plan.</p>
+              <h3>Channel access limit</h3>
+              <p class="section-description">Adjust extra slots for this client. These slots are added on top of the current plan limit.</p>
+            </div>
+          </div>
+          <div class="allowance-summary-grid">
+            <div class="allowance-box">
+              <span class="allowance-label">Plan</span>
+              <strong>${escapeHtml(detail.currentPlanName)}</strong>
+            </div>
+            <div class="allowance-box">
+              <span class="allowance-label">Included channels</span>
+              <strong>${Math.max(detail.subscriptionLimit - detail.extraSubscriptionSlots, 1)}</strong>
+            </div>
+            <div class="allowance-box">
+              <span class="allowance-label">Extra slots</span>
+              <strong>${detail.extraSubscriptionSlots}</strong>
+            </div>
+            <div class="allowance-box">
+              <span class="allowance-label">Effective limit</span>
+              <strong>${detail.subscriptionLimit}</strong>
             </div>
           </div>
           <form class="inline-form" data-form="subscription-allowance">
             <input name="extraSubscriptionSlots" type="number" min="0" value="${detail.extraSubscriptionSlots}" />
             <button class="action-button primary" type="submit">Save slots</button>
+          </form>
+        </section>
+        <section class="section-card">
+          <div class="section-head">
+            <div>
+              <h3>Owned channel allowance</h3>
+              <p class="section-description">Add extra slots for channels where the bot is administrator.</p>
+            </div>
+          </div>
+          <div class="allowance-summary-grid">
+            <div class="allowance-box">
+              <span class="allowance-label">Plan</span>
+              <strong>${escapeHtml(detail.currentPlanName)}</strong>
+            </div>
+            <div class="allowance-box">
+              <span class="allowance-label">Included owned channels</span>
+              <strong>${Math.max(detail.managedChannelLimit - detail.extraManagedChannelSlots, 1)}</strong>
+            </div>
+            <div class="allowance-box">
+              <span class="allowance-label">Extra owned slots</span>
+              <strong>${detail.extraManagedChannelSlots}</strong>
+            </div>
+            <div class="allowance-box">
+              <span class="allowance-label">Effective owned limit</span>
+              <strong>${detail.managedChannelLimit}</strong>
+            </div>
+          </div>
+          <form class="inline-form" data-form="managed-channel-allowance">
+            <input name="extraManagedChannelSlots" type="number" min="0" value="${detail.extraManagedChannelSlots}" />
+            <button class="action-button primary" type="submit">Save owned slots</button>
           </form>
         </section>
         ${botSection}
@@ -378,21 +448,23 @@
   }
 
   function renderManagedChannelsSection(detail) {
-    if (detail.managedChannelsCount === 0) {
+    const visibleChannels = detail.managedChannels.filter(channel => channel.isActive);
+
+    if (visibleChannels.length === 0) {
       return `
         <section class="section-card">
           <div class="section-head">
             <div>
-              <h3>Owned channels</h3>
-              <p class="section-description">Channels where the bot already has admin rights.</p>
+              <h3>Channels where the bot is admin</h3>
+              <p class="section-description">This matches the live Mini App view: only channels where the bot still has admin rights are shown here.</p>
             </div>
           </div>
-          <div class="empty-state">This client has no managed channels yet.</div>
+          <div class="empty-state">This client has no active admin channels right now.</div>
         </section>
       `;
     }
 
-    const rows = detail.managedChannels.map(channel => {
+    const rows = visibleChannels.map(channel => {
       const isExpanded = state.managedSubscriptionsExpanded.has(channel.managedChannelId);
       const pageData = state.managedSubscriptionsPages.get(channel.managedChannelId);
       let nested = '';
@@ -436,9 +508,12 @@
       return `
         <article class="channel-row">
           <div class="row-top">
-            <div>
-              <strong>${escapeHtml(channel.channelName)}</strong>
-              <p class="muted">${escapeHtml(channel.channelReference)}</p>
+            <div class="mini-channel-head">
+              <div class="mini-channel-avatar">${buildInitials(channel.channelName)}</div>
+              <div class="mini-channel-copy">
+                <strong>${escapeHtml(channel.channelName)}</strong>
+                <p class="muted">${escapeHtml(channel.channelReference)}</p>
+              </div>
             </div>
             <div class="row-actions">
               <span class="state-pill ${channel.isActive ? 'active' : 'paused'}">${channel.isActive ? 'Running' : 'Paused'}</span>
@@ -470,9 +545,10 @@
       <section class="section-card">
         <div class="section-head">
           <div>
-            <h3>Owned channels</h3>
-            <p class="section-description">Channels where the bot can forward tracked source posts.</p>
+            <h3>Channels where the bot is admin</h3>
+            <p class="section-description">Same list as in Mini App. These channels can receive tracked posts and manage their own source subscriptions.</p>
           </div>
+          <span class="state-pill active">${visibleChannels.length} active</span>
         </div>
         <div class="rows-stack">${rows}</div>
       </section>
@@ -564,6 +640,15 @@
     if (formType === 'subscription-allowance') {
       await patchJson(`/api/admin/clients/${state.selectedClientId}/subscription-allowance`, {
         extraSubscriptionSlots: Number(form.extraSubscriptionSlots.value)
+      });
+      await refreshDetail();
+      await loadClients(state.clientsPage);
+      return;
+    }
+
+    if (formType === 'managed-channel-allowance') {
+      await patchJson(`/api/admin/clients/${state.selectedClientId}/managed-channel-allowance`, {
+        extraManagedChannelSlots: Number(form.extraManagedChannelSlots.value)
       });
       await refreshDetail();
       await loadClients(state.clientsPage);

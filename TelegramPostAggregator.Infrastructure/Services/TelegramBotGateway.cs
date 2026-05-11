@@ -139,6 +139,11 @@ public sealed class TelegramBotGateway(
             {
                 return localResult;
             }
+
+            if (!ShouldRetryWithOfficialBotApi(localResult))
+            {
+                return localResult;
+            }
         }
 
         var streams = new List<Stream>();
@@ -177,14 +182,39 @@ public sealed class TelegramBotGateway(
             {
                 return localResult;
             }
+
+            if (!ShouldRetryWithOfficialBotApi(localResult))
+            {
+                return localResult;
+            }
+
+            DisposeStreams(streams);
+            streams.Clear();
+
+            for (var index = 0; index < message.Items.Count; index++)
+            {
+                streams.Add(File.OpenRead(message.Items[index].FilePath));
+            }
+
+            using var officialContent = new MultipartFormDataContent();
+            officialContent.Add(new StringContent(message.ChatId.ToString()), "chat_id");
+            officialContent.Add(new StringContent(JsonSerializer.Serialize(mediaItems), Encoding.UTF8, "application/json"), "media");
+
+            for (var index = 0; index < streams.Count; index++)
+            {
+                var fileContent = new StreamContent(streams[index]);
+                fileContent.Headers.ContentType = new MediaTypeHeaderValue(ResolveUploadContentType(message.Items[index].MediaKind, message.Items[index].FilePath));
+                officialContent.Add(fileContent, $"file{index}", BuildUploadFileName(message.Items[index].MediaKind, message.Items[index].FilePath));
+            }
+
+            using var officialResponse = await CreateClient(useLocalBotApi: false).PostAsync("sendMediaGroup", officialContent, cancellationToken);
+            return await ToResultAsync(officialResponse, cancellationToken);
         }
         catch
         {
             DisposeStreams(streams);
             throw;
         }
-
-        return null;
     }
 
     public Task<TelegramBotApiResultDto> AnswerCallbackQueryAsync(string callbackQueryId, string? text, CancellationToken cancellationToken = default) =>
@@ -312,6 +342,11 @@ public sealed class TelegramBotGateway(
             {
                 return localResult;
             }
+
+            if (!ShouldRetryWithOfficialBotApi(localResult))
+            {
+                return localResult;
+            }
         }
 
         using var content = new MultipartFormDataContent();
@@ -328,7 +363,27 @@ public sealed class TelegramBotGateway(
         content.Add(fileContent, fieldName, BuildUploadFileName(fieldName, message.FilePath));
 
         using var response = await CreateClient().PostAsync(endpoint, content, cancellationToken);
-        return await ToResultAsync(response, cancellationToken);
+        var result = await ToResultAsync(response, cancellationToken);
+        if (result.IsSuccessStatusCode || !ShouldRetryWithOfficialBotApi(result))
+        {
+            return result;
+        }
+
+        using var officialContent = new MultipartFormDataContent();
+        officialContent.Add(new StringContent(message.ChatId.ToString()), "chat_id");
+        officialContent.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
+        if (!string.IsNullOrWhiteSpace(message.ParseMode))
+        {
+            officialContent.Add(new StringContent(message.ParseMode, Encoding.UTF8), "parse_mode");
+        }
+
+        using var officialStream = File.OpenRead(message.FilePath);
+        using var officialFileContent = new StreamContent(officialStream);
+        officialFileContent.Headers.ContentType = new MediaTypeHeaderValue(ResolveUploadContentType(fieldName, message.FilePath));
+        officialContent.Add(officialFileContent, fieldName, BuildUploadFileName(fieldName, message.FilePath));
+
+        using var officialResponse = await CreateClient(useLocalBotApi: false).PostAsync(endpoint, officialContent, cancellationToken);
+        return await ToResultAsync(officialResponse, cancellationToken);
     }
 
     private async Task<TelegramBotApiResultDto> PostJsonAsync(string endpoint, object payload, CancellationToken cancellationToken)
@@ -473,11 +528,22 @@ public sealed class TelegramBotGateway(
 
     private static async Task<TelegramBotApiResultDto> ToResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        var body = response.IsSuccessStatusCode
-            ? null
-            : await response.Content.ReadAsStringAsync(cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        return new TelegramBotApiResultDto(response.IsSuccessStatusCode, response.StatusCode, body);
+        return new TelegramBotApiResultDto(
+            response.IsSuccessStatusCode,
+            response.StatusCode,
+            string.IsNullOrWhiteSpace(body) ? null : body);
+    }
+
+    private static bool ShouldRetryWithOfficialBotApi(TelegramBotApiResultDto result)
+    {
+        if (result.IsSuccessStatusCode || string.IsNullOrWhiteSpace(result.ResponseBody))
+        {
+            return false;
+        }
+
+        return result.ResponseBody.Contains("internal Server Error during file upload", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, object?> CreateMediaPayload(TelegramBotMediaGroupItemDto item, string mediaReference)

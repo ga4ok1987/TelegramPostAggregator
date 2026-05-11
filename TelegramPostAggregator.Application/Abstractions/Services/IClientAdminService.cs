@@ -18,4 +18,5 @@ public interface IClientAdminService
     Task<bool> DeleteManagedChannelSubscriptionAsync(Guid subscriptionId, CancellationToken cancellationToken = default);
     Task<bool> SetBlockedAsync(Guid userId, bool isBlocked, CancellationToken cancellationToken = default);
     Task<bool> SetExtraSubscriptionSlotsAsync(Guid userId, int extraSubscriptionSlots, CancellationToken cancellationToken = default);
+    Task<bool> SetExtraManagedChannelSlotsAsync(Guid userId, int extraManagedChannelSlots, CancellationToken cancellationToken = default);
 }

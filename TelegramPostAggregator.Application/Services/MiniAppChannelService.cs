@@ -14,6 +14,7 @@ public sealed class MiniAppChannelService(
     IManagedChannelRepository managedChannelRepository,
     IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
     IAppUserRepository appUserRepository,
+    IBillingService billingService,
     IPostRepository postRepository,
     ITelegramBotGateway telegramBotGateway,
     IServiceScopeFactory scopeFactory,
@@ -137,6 +138,12 @@ public sealed class MiniAppChannelService(
             return new ManagedChannelRegistrationResultDto(false, "Start the bot first, then add your channel again.");
         }
 
+        var managedChannelQuota = await EnsureManagedChannelQuotaAsync(telegramUserId, sharedChat.ChatId, cancellationToken);
+        if (managedChannelQuota is not null)
+        {
+            return new ManagedChannelRegistrationResultDto(false, managedChannelQuota.Message);
+        }
+
         var existing = await managedChannelRepository.GetByTelegramChatIdAsync(user.Id, sharedChat.ChatId, cancellationToken);
         var managedChannel = existing ?? new ManagedChannel
         {
@@ -196,6 +203,28 @@ public sealed class MiniAppChannelService(
         if (managedChannel is null && !isAdminStatus)
         {
             return false;
+        }
+
+        if (managedChannel is null && isAdminStatus)
+        {
+            var managedChannelQuota = await EnsureManagedChannelQuotaAsync(telegramUserId, membership.ChatId, cancellationToken);
+            if (managedChannelQuota is not null)
+            {
+                logger.LogInformation(
+                    "Skipping managed channel sync because owned channel limit was reached. TelegramUserId={TelegramUserId}, ChatId={ChatId}",
+                    telegramUserId,
+                    membership.ChatId);
+
+                await telegramBotGateway.SendMessageAsync(
+                    new TelegramBotOutboundMessageDto(
+                        telegramUserId,
+                        managedChannelQuota.Message,
+                        ParseMode: null,
+                        DisableWebPagePreview: true),
+                    cancellationToken);
+
+                return false;
+            }
         }
 
         if (managedChannel is null)
@@ -398,6 +427,15 @@ public sealed class MiniAppChannelService(
             channel.LastWriteSucceededAtUtc ?? channel.LastVerifiedAtUtc,
             channel.LastWriteError,
             subscriptions);
+    }
+
+    private async Task<ChannelTrackingResultDto?> EnsureManagedChannelQuotaAsync(
+        long telegramUserId,
+        long telegramChatId,
+        CancellationToken cancellationToken)
+    {
+        var decision = await billingService.CanAddManagedChannelAsync(telegramUserId, telegramChatId, cancellationToken);
+        return decision.Success ? null : decision;
     }
 
     private async Task<IReadOnlyList<MiniAppSourceSubscriptionDto>> BuildSubscriptionDtosAsync(

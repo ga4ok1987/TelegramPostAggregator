@@ -10,7 +10,8 @@ internal static class BillingDefaults
         {
             Code = "free",
             DisplayName = "Free",
-            ChannelLimit = 10,
+            ChannelLimit = 1,
+            ManagedChannelLimit = 1,
             PriceStars = 0,
             DurationDays = null,
             IsEnabled = true,
@@ -21,7 +22,8 @@ internal static class BillingDefaults
         {
             Code = "basic",
             DisplayName = "Basic",
-            ChannelLimit = 20,
+            ChannelLimit = 3,
+            ManagedChannelLimit = 3,
             PriceStars = 100,
             DurationDays = 30,
             IsEnabled = true,
@@ -31,7 +33,8 @@ internal static class BillingDefaults
         {
             Code = "pro",
             DisplayName = "Pro",
-            ChannelLimit = 50,
+            ChannelLimit = 8,
+            ManagedChannelLimit = 8,
             PriceStars = 250,
             DurationDays = 30,
             IsEnabled = true,
@@ -41,7 +44,8 @@ internal static class BillingDefaults
         {
             Code = "business",
             DisplayName = "Business",
-            ChannelLimit = 150,
+            ChannelLimit = 12,
+            ManagedChannelLimit = 12,
             PriceStars = 700,
             DurationDays = 30,
             IsEnabled = true,
@@ -51,7 +55,8 @@ internal static class BillingDefaults
         {
             Code = "business-plus-plus",
             DisplayName = "Business++",
-            ChannelLimit = 250,
+            ChannelLimit = 15,
+            ManagedChannelLimit = 15,
             PriceStars = 1200,
             DurationDays = 30,
             IsEnabled = true,

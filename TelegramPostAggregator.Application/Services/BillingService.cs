@@ -23,11 +23,16 @@ public sealed class BillingService(
 
         var user = await appUserRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken);
         var plan = await ResolveEffectivePlanAsync(user, cancellationToken);
-        var usedChannels = user is null
-            ? 0
-            : await CountUsedUniqueChannelsAsync(user.TelegramUserId, cancellationToken);
+        var usedChannels = user is null ? 0 : await CountUsedUniqueChannelsAsync(user.TelegramUserId, cancellationToken);
+        var usedManagedChannels = user is null ? 0 : CountUsedManagedChannels(user);
 
-        return MapUsage(plan, usedChannels, user?.SubscriptionExpiresAtUtc, user?.ExtraSubscriptionSlots ?? 0);
+        return MapUsage(
+            plan,
+            usedChannels,
+            usedManagedChannels,
+            user?.SubscriptionExpiresAtUtc,
+            user?.ExtraSubscriptionSlots ?? 0,
+            user?.ExtraManagedChannelSlots ?? 0);
     }
 
     public async Task<ChannelTrackingResultDto> CanAddChannelAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default)
@@ -49,6 +54,31 @@ public sealed class BillingService(
         }
 
         var message = $"You reached the limit for the {usage.CurrentPlanName} plan: {usage.UsedChannels}/{usage.ChannelLimit} channels. Open Plans to upgrade.";
+        return new ChannelTrackingResultDto(false, message, Usage: usage);
+    }
+
+    public async Task<ChannelTrackingResultDto> CanAddManagedChannelAsync(long telegramUserId, long telegramChatId, CancellationToken cancellationToken = default)
+    {
+        await EnsureDefaultsAsync(cancellationToken);
+
+        var user = await appUserRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken);
+        var usage = await GetSubscriptionUsageAsync(telegramUserId, cancellationToken);
+        if (user is null)
+        {
+            return new ChannelTrackingResultDto(false, "Start the bot first, then connect your channel.", Usage: usage);
+        }
+
+        var existingManagedChannels = user.ManagedChannels
+            .Where(x => x.IsActive)
+            .Select(x => x.TelegramChatId)
+            .ToHashSet();
+
+        if (existingManagedChannels.Contains(telegramChatId) || usage.UsedManagedChannels < usage.ManagedChannelLimit)
+        {
+            return new ChannelTrackingResultDto(true, string.Empty, Usage: usage);
+        }
+
+        var message = $"You reached the limit for owned channels in the {usage.CurrentPlanName} plan: {usage.UsedManagedChannels}/{usage.ManagedChannelLimit}. Open Plans to upgrade.";
         return new ChannelTrackingResultDto(false, message, Usage: usage);
     }
 
@@ -259,27 +289,10 @@ public sealed class BillingService(
 
     private async Task EnsureDefaultsAsync(CancellationToken cancellationToken)
     {
-        var plans = await subscriptionPlanRepository.ListAsync(cancellationToken);
-        if (plans.Count == 0)
-        {
-            foreach (var plan in BillingDefaults.CreatePlans())
-            {
-                await subscriptionPlanRepository.AddAsync(plan, cancellationToken);
-            }
-
-            await subscriptionPlanRepository.SaveChangesAsync(cancellationToken);
-        }
-
-        var donations = await donationOptionRepository.ListAsync(cancellationToken);
-        if (donations.Count == 0)
-        {
-            foreach (var donation in BillingDefaults.CreateDonations())
-            {
-                await donationOptionRepository.AddAsync(donation, cancellationToken);
-            }
-
-            await donationOptionRepository.SaveChangesAsync(cancellationToken);
-        }
+        await BillingDefaultsSeeder.EnsureAsync(
+            subscriptionPlanRepository,
+            donationOptionRepository,
+            cancellationToken);
     }
 
     private async Task<SubscriptionPlanDefinition> ResolveEffectivePlanAsync(AppUser? user, CancellationToken cancellationToken)
@@ -329,17 +342,26 @@ public sealed class BillingService(
 
     private static string BuildPlanDescription(SubscriptionPlanDefinition plan)
     {
-        return $"Monthly Telegram Stars subscription for up to {plan.ChannelLimit} source channels. Renews every 30 days.";
+        return $"Monthly Telegram Stars subscription for up to {plan.ChannelLimit} source channels and {plan.ManagedChannelLimit} owned channels. Renews every 30 days.";
     }
 
-    private static SubscriptionUsageDto MapUsage(SubscriptionPlanDefinition plan, int usedChannels, DateTimeOffset? expiresAtUtc, int extraSubscriptionSlots)
+    private static SubscriptionUsageDto MapUsage(
+        SubscriptionPlanDefinition plan,
+        int usedChannels,
+        int usedManagedChannels,
+        DateTimeOffset? expiresAtUtc,
+        int extraSubscriptionSlots,
+        int extraManagedChannelSlots)
     {
         var effectiveLimit = Math.Max(plan.ChannelLimit + Math.Max(extraSubscriptionSlots, 0), 1);
+        var effectiveManagedChannelLimit = Math.Max(plan.ManagedChannelLimit + Math.Max(extraManagedChannelSlots, 0), 1);
         return new(
             plan.Code,
             plan.DisplayName,
             effectiveLimit,
             usedChannels,
+            effectiveManagedChannelLimit,
+            usedManagedChannels,
             expiresAtUtc,
             !plan.IsDefaultPlan);
     }
@@ -350,6 +372,7 @@ public sealed class BillingService(
             plan.Code,
             plan.DisplayName,
             plan.ChannelLimit,
+            plan.ManagedChannelLimit,
             plan.PriceStars,
             plan.DurationDays,
             plan.IsEnabled,
@@ -364,4 +387,7 @@ public sealed class BillingService(
             donation.StarsAmount,
             donation.IsEnabled,
             donation.SortOrder);
+
+    private static int CountUsedManagedChannels(AppUser user) =>
+        user.ManagedChannels.Count(channel => channel.IsActive);
 }

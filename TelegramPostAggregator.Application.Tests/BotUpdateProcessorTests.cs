@@ -355,7 +355,7 @@ public sealed class BotUpdateProcessorTests
                     "Pending",
                     null,
                     null),
-                new SubscriptionUsageDto("free", "Free", 10, 1, null, false)));
+                new SubscriptionUsageDto("free", "Free", 10, 1, 1, 0, null, false)));
 
         private Guid AddTrackedChannel(AddTrackedChannelDto request)
         {
@@ -393,9 +393,12 @@ public sealed class BotUpdateProcessorTests
     private sealed class FakeBillingService : IBillingService
     {
         public Task<SubscriptionUsageDto> GetSubscriptionUsageAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SubscriptionUsageDto("free", "Free", 10, 0, null, false));
+            Task.FromResult(new SubscriptionUsageDto("free", "Free", 10, 0, 1, 0, null, false));
 
         public Task<ChannelTrackingResultDto> CanAddChannelAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChannelTrackingResultDto(true, string.Empty));
+
+        public Task<ChannelTrackingResultDto> CanAddManagedChannelAsync(long telegramUserId, long telegramChatId, CancellationToken cancellationToken = default) =>
             Task.FromResult(new ChannelTrackingResultDto(true, string.Empty));
 
         public Task<IReadOnlyList<SubscriptionPlanDefinitionDto>> ListAvailablePlansAsync(CancellationToken cancellationToken = default) =>

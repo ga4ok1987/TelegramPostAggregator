@@ -224,8 +224,12 @@
             <input name="displayName" value="${escapeHtml(plan.displayName)}" required />
           </div>
           <div class="form-field">
-            <label>Channel limit</label>
+            <label>Source channel limit</label>
             <input name="channelLimit" type="number" min="1" value="${plan.channelLimit}" required />
+          </div>
+          <div class="form-field">
+            <label>Owned channel limit</label>
+            <input name="managedChannelLimit" type="number" min="1" value="${plan.managedChannelLimit}" required />
           </div>
           <div class="form-field">
             <label>Stars price</label>
@@ -290,7 +294,7 @@
           <div class="section-head">
             <div>
               <h3>Subscription plans</h3>
-              <p class="section-description">Edit limits and Stars price. Paid Telegram Stars subscriptions renew every 30 days.</p>
+              <p class="section-description">Edit source-channel limits, owned-channel limits, and Stars price. Paid Telegram Stars subscriptions renew every 30 days.</p>
             </div>
           </div>
           <div class="stacked-sections">${plans}</div>
@@ -435,6 +439,7 @@
       body: JSON.stringify({
         displayName: form.displayName.value.trim(),
         channelLimit: Number(form.channelLimit.value),
+        managedChannelLimit: Number(form.managedChannelLimit.value),
         priceStars: Number(form.priceStars.value),
         durationDays: form.durationDays.disabled || !form.durationDays.value ? null : Number(form.durationDays.value),
         isEnabled: form.isEnabled.checked,

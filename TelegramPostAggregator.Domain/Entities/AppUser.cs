@@ -13,6 +13,7 @@ public sealed class AppUser : BaseEntity
     public DateTimeOffset? SubscriptionExpiresAtUtc { get; set; }
     public DateTimeOffset? LastStarsPaymentAtUtc { get; set; }
     public int ExtraSubscriptionSlots { get; set; }
+    public int ExtraManagedChannelSlots { get; set; }
 
     public ICollection<UserChannelSubscription> ChannelSubscriptions { get; set; } = new List<UserChannelSubscription>();
     public ICollection<ManagedChannel> ManagedChannels { get; set; } = new List<ManagedChannel>();

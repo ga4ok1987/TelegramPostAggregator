@@ -4,6 +4,8 @@ public sealed record AdminClientUpdateRequest(bool IsBlockedBot);
 
 public sealed record AdminClientSubscriptionAllowanceRequest(int ExtraSubscriptionSlots);
 
+public sealed record AdminClientManagedChannelAllowanceRequest(int ExtraManagedChannelSlots);
+
 public sealed record AdminCreateSubscriptionRequest(string ChannelReference);
 
 public sealed record AdminSetActiveRequest(bool IsActive);
@@ -28,6 +30,7 @@ public sealed record AdminUserPasswordRequest(string Password);
 public sealed record AdminPlanUpdateRequest(
     string DisplayName,
     int ChannelLimit,
+    int ManagedChannelLimit,
     int PriceStars,
     int? DurationDays,
     bool IsEnabled,
