@@ -439,6 +439,9 @@ public sealed class BotUpdateProcessorTests
         public Task<bool> SetActiveAsync(long telegramUserId, Guid channelId, bool isActive, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
+        public Task<bool> SetTrackPostEditsAsync(long telegramUserId, Guid channelId, bool trackPostEdits, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
         public Task<bool> DeleteAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 

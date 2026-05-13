@@ -425,6 +425,17 @@
                     </article>
 
                     <article class="miniapp-panel settings-card">
+                        <span class="settings-label">Track edits for new posts</span>
+                        <label class="settings-toggle">
+                            <input type="checkbox"
+                                   checked="@SelectedSettingsChannel.TrackPostEdits"
+                                   @onchange="async e => await ToggleTrackPostEditsAsync(SelectedSettingsChannel.ChannelId, e.Value is bool enabled && enabled)"
+                                   disabled="@ViewModel.IsChannelBusy(SelectedSettingsChannel.ChannelId)" />
+                            <span>Watch only posts delivered after enabling this toggle for 24 hours. If the author edits the source post, your channel receives a new full post with both links.</span>
+                        </label>
+                    </article>
+
+                    <article class="miniapp-panel settings-card">
                         <span class="settings-label">Latest sync</span>
                         <strong>@FormatDate(SelectedSettingsChannel.LastPostCollectedAtUtc)</strong>
                         @if (!string.IsNullOrWhiteSpace(SelectedSettingsChannel.LastCollectorError))
@@ -573,6 +584,9 @@
 
         await ExecuteAsync(() => ViewModel.DeleteSubscriptionAsync(channelId, subscriptionId));
     }
+
+    private async Task ToggleTrackPostEditsAsync(Guid channelId, bool enabled) =>
+        await ExecuteAsync(() => ViewModel.SetTrackPostEditsAsync(channelId, enabled));
 
     private static string BuildAvatar(string channelName)
     {

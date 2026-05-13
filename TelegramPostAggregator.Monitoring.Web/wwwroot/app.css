@@ -891,6 +891,20 @@ button:focus-visible {
     word-break: break-word;
 }
 
+.settings-toggle {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.settings-toggle input {
+    margin: 3px 0 0;
+    accent-color: #3f87ff;
+}
+
 .settings-warning {
     margin-top: 0;
 }

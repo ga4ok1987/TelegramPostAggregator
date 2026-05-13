@@ -97,6 +97,42 @@ public sealed class MiniAppViewModel(
     public async Task<bool> StopChannelAsync(Guid channelId, CancellationToken cancellationToken = default) =>
         await UpdateChannelAsync(channelId, false, "Channel monitoring paused.", cancellationToken);
 
+    public async Task<bool> SetTrackPostEditsAsync(Guid channelId, bool trackPostEdits, CancellationToken cancellationToken = default)
+    {
+        if (TelegramUserId is null or 0)
+        {
+            ErrorMessage = "Telegram user is not available.";
+            return false;
+        }
+
+        if (IsChannelBusy(channelId))
+        {
+            return false;
+        }
+
+        PendingChannelIds.Add(channelId);
+        try
+        {
+            var updated = await miniAppChannelService.SetTrackPostEditsAsync(TelegramUserId.Value, channelId, trackPostEdits, cancellationToken);
+            if (!updated)
+            {
+                ErrorMessage = "Channel was not found.";
+                return false;
+            }
+
+            StatusMessage = trackPostEdits
+                ? "Edit tracking enabled for this channel."
+                : "Edit tracking disabled for this channel.";
+            ErrorMessage = null;
+            await RefreshChannelsAsync(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            PendingChannelIds.Remove(channelId);
+        }
+    }
+
     public async Task<bool> DeleteChannelAsync(Guid channelId, CancellationToken cancellationToken = default)
     {
         if (TelegramUserId is null or 0)

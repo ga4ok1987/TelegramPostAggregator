@@ -13,4 +13,6 @@ public sealed class ManagedChannelSubscription : BaseEntity
     public bool IsActive { get; set; } = true;
     public long? LastDeliveredTelegramMessageId { get; set; }
     public DateTimeOffset? LastDeliveredAtUtc { get; set; }
+
+    public ICollection<ManagedChannelPostTracking> TrackedPosts { get; set; } = new List<ManagedChannelPostTracking>();
 }

@@ -7,6 +7,7 @@ public sealed record MiniAppChannelDto(
     string? AvatarImageUrl,
     string Status,
     bool IsActive,
+    bool TrackPostEdits,
     DateTimeOffset? LastPostCollectedAtUtc,
     string? LastCollectorError,
     IReadOnlyList<MiniAppSourceSubscriptionDto> Subscriptions);

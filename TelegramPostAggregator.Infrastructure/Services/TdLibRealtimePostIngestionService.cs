@@ -18,6 +18,7 @@ public sealed class TdLibRealtimePostIngestionService(
     ILogger<TdLibRealtimePostIngestionService> logger)
 {
     private static readonly TimeSpan AlbumDebounceDelay = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan EditTrackingWindow = TimeSpan.FromHours(24);
     private readonly Lock _albumGate = new();
     private readonly Dictionary<string, CancellationTokenSource> _albumDebounces = [];
 
@@ -103,6 +104,110 @@ public sealed class TdLibRealtimePostIngestionService(
             await errorAlertService.SendAsync(
                 "Realtime post ingestion failed",
                 $"ChatId: {message.ChatId}\nMessageId: {message.Id}",
+                exception,
+                cancellationToken);
+        }
+    }
+
+    public async Task HandleEditedMessageAsync(
+        TdClient client,
+        CollectorAccount collectorAccount,
+        long chatId,
+        long messageId,
+        int editDate,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var channelRepository = scope.ServiceProvider.GetRequiredService<ITrackedChannelRepository>();
+            var postRepository = scope.ServiceProvider.GetRequiredService<IPostRepository>();
+            var postTrackingRepository = scope.ServiceProvider.GetRequiredService<IManagedChannelPostTrackingRepository>();
+            var textNormalizer = scope.ServiceProvider.GetRequiredService<ITextNormalizer>();
+
+            var channel = await channelRepository.GetByTelegramChannelIdAsync(chatId.ToString(), cancellationToken);
+            if (channel is null || channel.Status != ChannelTrackingStatus.Active)
+            {
+                return;
+            }
+
+            var existingPost = await postRepository.GetByChannelAndMessageIdAsync(channel.Id, messageId, cancellationToken);
+            if (existingPost is null)
+            {
+                return;
+            }
+
+            if (DateTimeOffset.UtcNow - existingPost.PublishedAtUtc > EditTrackingWindow)
+            {
+                return;
+            }
+
+            var message = await client.ExecuteAsync(new TdApi.GetMessage
+            {
+                ChatId = chatId,
+                MessageId = messageId
+            });
+
+            if (!message.IsChannelPost || TelegramContentClassifier.IsIgnorableContent(message.Content))
+            {
+                return;
+            }
+
+            var text = ExtractText(message.Content);
+            existingPost.AuthorSignature = message.AuthorSignature;
+            existingPost.RawText = text;
+            existingPost.NormalizedText = textNormalizer.Normalize(text);
+            existingPost.MediaGroupId = message.MediaAlbumId == 0 ? null : message.MediaAlbumId.ToString();
+            existingPost.HasMedia = HasMedia(message.Content);
+            existingPost.IsForwarded = message.ForwardInfo is not null;
+            existingPost.OriginalPostUrl = await BuildOriginalPostUrlAsync(client, channel, chatId, messageId);
+            existingPost.MetadataJson = await BuildMetadataJsonAsync(client, chatId, message, cancellationToken);
+            existingPost.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+            var pendingTrackings = await postTrackingRepository.GetByPostIdAsync(existingPost.Id, cancellationToken);
+            var editedAtUtc = DateTimeOffset.FromUnixTimeSeconds(editDate);
+            var markedAny = false;
+
+            foreach (var tracking in pendingTrackings)
+            {
+                if (!tracking.ManagedChannel.TrackPostEdits ||
+                    !tracking.ManagedChannel.TrackPostEditsEnabledAtUtc.HasValue ||
+                    tracking.LastDeliveredAtUtc < tracking.ManagedChannel.TrackPostEditsEnabledAtUtc.Value ||
+                    tracking.TrackEditsUntilUtc <= DateTimeOffset.UtcNow ||
+                    !tracking.ManagedChannel.IsActive ||
+                    !tracking.ManagedChannelSubscription.IsActive)
+                {
+                    continue;
+                }
+
+                if (tracking.PendingEditedAtUtc.HasValue && tracking.PendingEditedAtUtc.Value >= editedAtUtc)
+                {
+                    continue;
+                }
+
+                if (tracking.LastProcessedEditedAtUtc.HasValue && tracking.LastProcessedEditedAtUtc.Value >= editedAtUtc)
+                {
+                    continue;
+                }
+
+                tracking.PendingEditedAtUtc = editedAtUtc;
+                tracking.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                markedAny = true;
+            }
+
+            await postRepository.SaveChangesAsync(cancellationToken);
+            if (markedAny)
+            {
+                await postTrackingRepository.SaveChangesAsync(cancellationToken);
+                deliverySignal.Signal();
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Realtime post edit ingestion failed for chat {ChatId}, message {MessageId}", chatId, messageId);
+            await errorAlertService.SendAsync(
+                "Realtime post edit ingestion failed",
+                $"ChatId: {chatId}\nMessageId: {messageId}",
                 exception,
                 cancellationToken);
         }

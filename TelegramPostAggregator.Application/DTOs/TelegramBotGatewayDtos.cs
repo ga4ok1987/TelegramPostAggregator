@@ -39,4 +39,5 @@ public sealed record TelegramBotMediaGroupMessageDto(
 public sealed record TelegramBotApiResultDto(
     bool IsSuccessStatusCode,
     HttpStatusCode StatusCode,
-    string? ResponseBody = null);
+    string? ResponseBody = null,
+    long? PrimaryMessageId = null);

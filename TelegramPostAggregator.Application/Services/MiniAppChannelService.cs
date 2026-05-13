@@ -346,6 +346,27 @@ public sealed class MiniAppChannelService(
         return true;
     }
 
+    public async Task<bool> SetTrackPostEditsAsync(long telegramUserId, Guid channelId, bool trackPostEdits, CancellationToken cancellationToken = default)
+    {
+        var channels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var target = channels.FirstOrDefault(channel => channel.Id == channelId);
+        if (target is null)
+        {
+            return false;
+        }
+
+        if (target.TrackPostEdits == trackPostEdits)
+        {
+            return true;
+        }
+
+        target.TrackPostEdits = trackPostEdits;
+        target.TrackPostEditsEnabledAtUtc = trackPostEdits ? DateTimeOffset.UtcNow : null;
+        target.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await managedChannelRepository.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<bool> DeleteAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default)
     {
         var channels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
@@ -459,6 +480,7 @@ public sealed class MiniAppChannelService(
             avatarImageUrl,
             channel.IsActive ? "Connected" : "Paused",
             channel.IsActive,
+            channel.TrackPostEdits,
             channel.LastWriteSucceededAtUtc ?? channel.LastVerifiedAtUtc,
             channel.LastWriteError,
             subscriptions);

@@ -529,11 +529,56 @@ public sealed class TelegramBotGateway(
     private static async Task<TelegramBotApiResultDto> ToResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        var primaryMessageId = TryExtractPrimaryMessageId(body);
 
         return new TelegramBotApiResultDto(
             response.IsSuccessStatusCode,
             response.StatusCode,
-            string.IsNullOrWhiteSpace(body) ? null : body);
+            string.IsNullOrWhiteSpace(body) ? null : body,
+            primaryMessageId);
+    }
+
+    private static long? TryExtractPrimaryMessageId(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("ok", out var okElement) || !okElement.GetBoolean())
+            {
+                return null;
+            }
+
+            if (!document.RootElement.TryGetProperty("result", out var resultElement))
+            {
+                return null;
+            }
+
+            if (resultElement.ValueKind == JsonValueKind.Object &&
+                resultElement.TryGetProperty("message_id", out var objectMessageIdElement) &&
+                objectMessageIdElement.TryGetInt64(out var objectMessageId))
+            {
+                return objectMessageId;
+            }
+
+            if (resultElement.ValueKind == JsonValueKind.Array &&
+                resultElement.GetArrayLength() > 0 &&
+                resultElement[0].TryGetProperty("message_id", out var arrayMessageIdElement) &&
+                arrayMessageIdElement.TryGetInt64(out var arrayMessageId))
+            {
+                return arrayMessageId;
+            }
+        }
+        catch
+        {
+            // Best-effort extraction only.
+        }
+
+        return null;
     }
 
     private static bool ShouldRetryWithOfficialBotApi(TelegramBotApiResultDto result)

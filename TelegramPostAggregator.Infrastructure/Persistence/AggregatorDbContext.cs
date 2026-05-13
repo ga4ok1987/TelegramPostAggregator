@@ -12,6 +12,7 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
     public DbSet<UserChannelSubscription> UserChannelSubscriptions => Set<UserChannelSubscription>();
     public DbSet<ManagedChannel> ManagedChannels => Set<ManagedChannel>();
     public DbSet<ManagedChannelSubscription> ManagedChannelSubscriptions => Set<ManagedChannelSubscription>();
+    public DbSet<ManagedChannelPostTracking> ManagedChannelPostTrackings => Set<ManagedChannelPostTracking>();
     public DbSet<CollectorAccount> CollectorAccounts => Set<CollectorAccount>();
     public DbSet<ChannelCollectorAssignment> ChannelCollectorAssignments => Set<ChannelCollectorAssignment>();
     public DbSet<TelegramPost> TelegramPosts => Set<TelegramPost>();
@@ -94,6 +95,22 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.HasIndex(x => new { x.IsActive, x.LastDeliveredTelegramMessageId });
             entity.HasOne(x => x.ManagedChannel).WithMany(x => x.SourceSubscriptions).HasForeignKey(x => x.ManagedChannelId);
             entity.HasOne(x => x.Channel).WithMany(x => x.ManagedChannelSubscriptions).HasForeignKey(x => x.ChannelId);
+        });
+
+        modelBuilder.Entity<ManagedChannelPostTracking>(entity =>
+        {
+            entity.ToTable("managed_channel_post_trackings");
+            entity.HasIndex(x => new { x.ManagedChannelSubscriptionId, x.PostId }).IsUnique();
+            entity.HasIndex(x => x.PendingEditedAtUtc);
+            entity.HasOne(x => x.ManagedChannel)
+                .WithMany(x => x.TrackedPostDeliveries)
+                .HasForeignKey(x => x.ManagedChannelId);
+            entity.HasOne(x => x.ManagedChannelSubscription)
+                .WithMany(x => x.TrackedPosts)
+                .HasForeignKey(x => x.ManagedChannelSubscriptionId);
+            entity.HasOne(x => x.Post)
+                .WithMany(x => x.ManagedChannelTrackings)
+                .HasForeignKey(x => x.PostId);
         });
 
         modelBuilder.Entity<CollectorAccount>(entity =>
