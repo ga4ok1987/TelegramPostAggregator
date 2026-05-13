@@ -4,6 +4,7 @@ using TdLib;
 using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
+using TelegramPostAggregator.Application.Exceptions;
 using TelegramPostAggregator.Domain.Entities;
 using TelegramPostAggregator.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
@@ -158,8 +159,22 @@ public sealed class TdLibTelegramCollectorGateway(
                 $"Channel: {channel.UsernameOrInviteLink}",
                 exception,
                 cancellationToken);
+
+            if (IsChatAccessException(exception))
+            {
+                throw new TrackedChannelUnavailableException(channel.UsernameOrInviteLink, exception);
+            }
+
             return Array.Empty<CollectedPostDto>();
         }
+    }
+
+    private static bool IsChatAccessException(Exception exception)
+    {
+        var message = exception.Message;
+        return message.Contains("Can't access the chat", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("chat not found", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("have no access to the chat", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<TdApi.Chat> ResolveChatAsync(TdClient client, TrackedChannel channel, CancellationToken cancellationToken)

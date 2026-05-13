@@ -42,6 +42,15 @@ public sealed class ManagedChannelSubscriptionRepository(AggregatorDbContext dbC
             .ThenBy(x => x.Channel.ChannelName)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ManagedChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default) =>
+        await dbContext.ManagedChannelSubscriptions
+            .Include(x => x.ManagedChannel)
+            .ThenInclude(x => x.User)
+            .Include(x => x.Channel)
+            .Where(x => x.ChannelId == channelId)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
         await dbContext.ManagedChannelSubscriptions
             .Include(x => x.ManagedChannel)

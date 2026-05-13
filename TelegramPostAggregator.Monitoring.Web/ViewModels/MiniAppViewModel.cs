@@ -162,7 +162,9 @@ public sealed class MiniAppViewModel(
             var updated = await miniAppChannelService.SetActiveAsync(TelegramUserId.Value, channelId, isActive, cancellationToken);
             if (!updated)
             {
-                ErrorMessage = "Channel was not found.";
+                ErrorMessage = Channels.Any(x => x.ChannelId == channelId)
+                    ? "No free active channel slots. Pause another channel first."
+                    : "Channel was not found.";
                 return false;
             }
 

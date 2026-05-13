@@ -549,6 +549,8 @@ public sealed class BotUpdateProcessorTests
             Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>(subscriptions.Skip(skip).Take(take).Select(ToEntity).ToList());
         public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>(subscriptions.Select(ToEntity).ToList());
+        public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>(subscriptions.Where(x => x.ChannelId == channelId).Select(ToEntity).ToList());
         public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>([]);
         public Task<IReadOnlyList<Domain.Entities.UserChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Domain.Entities.UserChannelSubscription>>([]);
         public Task AddAsync(Domain.Entities.UserChannelSubscription subscription, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -620,6 +622,9 @@ public sealed class BotUpdateProcessorTests
             Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
 
         public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
+
+        public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>>([]);
 
         public Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>

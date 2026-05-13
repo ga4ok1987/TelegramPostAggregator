@@ -75,6 +75,21 @@ await using (var scope = app.Services.CreateAsyncScope())
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.Use(async (httpContext, next) =>
+{
+    if (httpContext.Request.Path.StartsWithSegments("/mini-app", StringComparison.OrdinalIgnoreCase))
+    {
+        httpContext.Response.OnStarting(() =>
+        {
+            httpContext.Response.Headers.Remove("X-Frame-Options");
+            httpContext.Response.Headers["Content-Security-Policy"] =
+                "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;";
+            return Task.CompletedTask;
+        });
+    }
+
+    await next();
+});
 
 app.MapPost("/auth/login", async (HttpContext httpContext, IAdminAuthService adminAuthService) =>
     {

@@ -38,6 +38,12 @@ public sealed class MiniAppChannelService(
             return [];
         }
 
+        channels = await EnforceManagedChannelActivityLimitAsync(telegramUserId, channels, cancellationToken);
+        if (channels.Count == 0)
+        {
+            return [];
+        }
+
         var subscriptionsByManagedChannelId = (await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken))
             .GroupBy(x => x.ManagedChannelId)
             .ToDictionary(
@@ -72,9 +78,8 @@ public sealed class MiniAppChannelService(
 
             if (stillAdministrator)
             {
-                if (!channel.IsActive || !string.IsNullOrWhiteSpace(channel.LastWriteError))
+                if (IsAdminAccessError(channel.LastWriteError))
                 {
-                    channel.IsActive = true;
                     channel.LastWriteError = null;
                     channel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
                     changed = true;
@@ -150,12 +155,13 @@ public sealed class MiniAppChannelService(
             UserId = user.Id,
             TelegramChatId = sharedChat.ChatId
         };
+        var shouldActivate = existing?.IsActive ?? await CanActivateManagedChannelAsync(telegramUserId, existing?.Id, cancellationToken);
 
         managedChannel.ChannelName = !string.IsNullOrWhiteSpace(sharedChat.Title)
             ? sharedChat.Title.Trim()
             : BuildFallbackChannelName(sharedChat);
         managedChannel.Username = NormalizeUsername(sharedChat.Username);
-        managedChannel.IsActive = true;
+        managedChannel.IsActive = shouldActivate;
         managedChannel.LastVerifiedAtUtc = DateTimeOffset.UtcNow;
         managedChannel.LastWriteError = null;
 
@@ -171,13 +177,30 @@ public sealed class MiniAppChannelService(
             sharedChat.ChatId,
             managedChannel.Id);
 
-        _ = RunProbeInBackgroundAsync(managedChannel.Id, telegramUserId, sharedChat.ChatId);
+        if (shouldActivate)
+        {
+            _ = RunProbeInBackgroundAsync(managedChannel.Id, telegramUserId, sharedChat.ChatId);
+        }
+
+        return new ManagedChannelRegistrationResultDto(
+            true,
+            shouldActivate
+                ? $"Channel added: {managedChannel.ChannelName}. A verification message will appear shortly."
+                : $"Channel added: {managedChannel.ChannelName}. All active slots are already in use, so this channel was added in paused mode. Pause another active channel to activate this one.");
+
+#pragma warning disable CS0162
+        var registrationMessage = shouldActivate
+            ? $"Канал додано: {managedChannel.ChannelName}. Перевірочне повідомлення з’явиться трохи пізніше."
+            : $"Канал додано: {managedChannel.ChannelName}. Усі активні слоти вже зайняті, тому цей канал додано на паузі. Щоб активувати його, поставте інший активний канал на паузу.";
+
+        return new ManagedChannelRegistrationResultDto(true, registrationMessage);
 
         return new ManagedChannelRegistrationResultDto(
             true,
             $"Канал додано: {managedChannel.ChannelName}. Якщо це щойно створений канал, додайте бота адміністратором і ще раз натисніть «Додати мій канал / додати адміна». Перевірочне повідомлення з’явиться трохи пізніше.");
     }
 
+#pragma warning restore CS0162
     public async Task<bool> SyncBotMembershipAsync(long telegramUserId, TelegramMyChatMemberDto membership, CancellationToken cancellationToken = default)
     {
         if (!string.Equals(membership.ChatType, "channel", StringComparison.OrdinalIgnoreCase))
@@ -232,7 +255,8 @@ public sealed class MiniAppChannelService(
             managedChannel = new ManagedChannel
             {
                 UserId = user.Id,
-                TelegramChatId = membership.ChatId
+                TelegramChatId = membership.ChatId,
+                IsActive = false
             };
 
             await managedChannelRepository.AddAsync(managedChannel, cancellationToken);
@@ -246,7 +270,9 @@ public sealed class MiniAppChannelService(
 
         if (isAdminStatus)
         {
-            managedChannel.IsActive = true;
+            managedChannel.IsActive = managedChannel.IsActive ||
+                                      (IsAdminAccessError(managedChannel.LastWriteError) &&
+                                       await CanActivateManagedChannelAsync(telegramUserId, managedChannel.Id, cancellationToken));
             managedChannel.LastWriteError = null;
         }
         else
@@ -279,6 +305,15 @@ public sealed class MiniAppChannelService(
         if (target.IsActive == isActive)
         {
             return true;
+        }
+
+        if (isActive)
+        {
+            var canActivate = await CanActivateManagedChannelAsync(telegramUserId, target.Id, cancellationToken);
+            if (!canActivate)
+            {
+                return false;
+            }
         }
 
         target.IsActive = isActive;
@@ -438,6 +473,56 @@ public sealed class MiniAppChannelService(
         return decision.Success ? null : decision;
     }
 
+    private async Task<bool> CanActivateManagedChannelAsync(
+        long telegramUserId,
+        Guid? excludedManagedChannelId,
+        CancellationToken cancellationToken)
+    {
+        var usage = await billingService.GetSubscriptionUsageAsync(telegramUserId, cancellationToken);
+        var channels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var activeChannelsCount = channels.Count(channel => channel.IsActive && channel.Id != excludedManagedChannelId);
+        return activeChannelsCount < usage.ManagedChannelLimit;
+    }
+
+    private async Task<IReadOnlyList<ManagedChannel>> EnforceManagedChannelActivityLimitAsync(
+        long telegramUserId,
+        IReadOnlyList<ManagedChannel> channels,
+        CancellationToken cancellationToken)
+    {
+        var usage = await billingService.GetSubscriptionUsageAsync(telegramUserId, cancellationToken);
+        var activeChannels = channels.Where(channel => channel.IsActive).ToList();
+        if (activeChannels.Count <= usage.ManagedChannelLimit)
+        {
+            return channels;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var overflowChannels = activeChannels
+            .Skip(Math.Max(usage.ManagedChannelLimit, 0))
+            .ToList();
+        var overflowIds = overflowChannels
+            .Select(channel => channel.Id)
+            .ToHashSet();
+
+        foreach (var overflowChannel in overflowChannels)
+        {
+            overflowChannel.IsActive = false;
+            overflowChannel.UpdatedAtUtc = now;
+        }
+
+        var subscriptions = await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        foreach (var subscription in subscriptions.Where(x => overflowIds.Contains(x.ManagedChannelId) && x.IsActive))
+        {
+            subscription.IsActive = false;
+            subscription.UpdatedAtUtc = now;
+        }
+
+        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        await managedChannelRepository.SaveChangesAsync(cancellationToken);
+
+        return channels;
+    }
+
     private async Task<IReadOnlyList<MiniAppSourceSubscriptionDto>> BuildSubscriptionDtosAsync(
         IReadOnlyDictionary<Guid, IReadOnlyList<ManagedChannelSubscription>> subscriptionsByManagedChannelId,
         Guid managedChannelId,
@@ -505,6 +590,10 @@ public sealed class MiniAppChannelService(
          responseBody.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
          responseBody.Contains("forbidden", StringComparison.OrdinalIgnoreCase));
 
+    private static bool IsAdminAccessError(string? responseBody) =>
+        !string.IsNullOrWhiteSpace(responseBody) &&
+        responseBody.Contains("administrator", StringComparison.OrdinalIgnoreCase);
+
     private static bool CanDeleteAfterLeaveFailure(string? responseBody) =>
         !string.IsNullOrWhiteSpace(responseBody) &&
         (responseBody.Contains("bot is not a member", StringComparison.OrdinalIgnoreCase) ||
@@ -545,12 +634,33 @@ public sealed class MiniAppChannelService(
                     telegramUserId,
                     sharedChatId,
                     probeResult.ResponseBody);
-                if (IsAdminRightsIssue(probeResult.ResponseBody))
+                if (false && IsAdminRightsIssue(probeResult.ResponseBody))
+                {
+                    await telegramBotGateway.SendMessageAsync(
+                        new TelegramBotOutboundMessageDto(
+                            telegramUserId,
+                            "Telegram повідомив, що бот ще не є адміністратором цього каналу. Додайте бота адміністратором і спробуйте ще раз.",
+                            ParseMode: null,
+                            DisableWebPagePreview: true),
+                        CancellationToken.None);
+                }
+                if (false && IsAdminRightsIssue(probeResult.ResponseBody))
                 {
                     await telegramBotGateway.SendMessageAsync(
                         new TelegramBotOutboundMessageDto(
                             telegramUserId,
                             "Telegram повідомив, що бот ще не є адміністратором цього каналу. Додайте бота адміністратором і ще раз натисніть «Додати мій канал / додати адміна».",
+                            ParseMode: null,
+                            DisableWebPagePreview: true),
+                        CancellationToken.None);
+                }
+
+                if (IsAdminRightsIssue(probeResult.ResponseBody))
+                {
+                    await telegramBotGateway.SendMessageAsync(
+                        new TelegramBotOutboundMessageDto(
+                            telegramUserId,
+                            "Telegram reported that the bot is not yet an administrator in this channel. Add the bot as an administrator and try again.",
                             ParseMode: null,
                             DisableWebPagePreview: true),
                         CancellationToken.None);

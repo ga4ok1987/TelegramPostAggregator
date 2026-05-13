@@ -9,6 +9,7 @@ public interface ISubscriptionRepository
     Task<int> CountByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<UserChannelSubscription>> GetPageByUserIdAsync(Guid userId, int skip, int take, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<UserChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<UserChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<UserChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default);
     Task AddAsync(UserChannelSubscription subscription, CancellationToken cancellationToken = default);

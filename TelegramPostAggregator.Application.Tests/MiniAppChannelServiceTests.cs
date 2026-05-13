@@ -94,6 +94,7 @@ public sealed class MiniAppChannelServiceTests
     [Fact]
     public async Task RegisterSharedChannelAsync_Saves_Channel_And_Probes_Posting()
     {
+        var requestId = Environment.TickCount;
         var repository = new FakeManagedChannelRepository([]);
         var service = new MiniAppChannelService(
             repository,
@@ -111,7 +112,7 @@ public sealed class MiniAppChannelServiceTests
 
         var result = await service.RegisterSharedChannelAsync(
             123456789,
-            new TelegramSharedChatDto(1001, -100200, "My Private Channel", "private_channel"));
+            new TelegramSharedChatDto(requestId, -100200, "My Private Channel", "private_channel"));
 
         Assert.True(result.Success);
         var channel = Assert.Single(repository.Items);
@@ -119,6 +120,42 @@ public sealed class MiniAppChannelServiceTests
         Assert.Equal(-100200, channel.TelegramChatId);
         Assert.Equal("private_channel", channel.Username);
         Assert.NotNull(channel.LastVerifiedAtUtc);
+    }
+
+    [Fact]
+    public async Task RegisterSharedChannelAsync_Adds_Channel_Paused_When_Active_Slots_Are_Full()
+    {
+        var requestId = Environment.TickCount + 1;
+        var user = CreateUser();
+        var existingActive = CreateManagedChannel(user, "Alpha", -1001, "alpha", true);
+        var repository = new FakeManagedChannelRepository([existingActive]);
+        var service = new MiniAppChannelService(
+            repository,
+            new FakeManagedChannelSubscriptionRepository([]),
+            new FakeAppUserRepository(user),
+            new FakeBillingService(
+                usage: new SubscriptionUsageDto("free", "Free", 1, 0, 1, 1, null, false),
+                availablePlans:
+                [
+                    new SubscriptionPlanDefinitionDto(Guid.NewGuid(), "free", "Free", 1, 1, 0, null, true, true, 0),
+                    new SubscriptionPlanDefinitionDto(Guid.NewGuid(), "business-plus-plus", "Business+", 15, 15, 0, null, true, false, 1)
+                ]),
+            new FakePostRepository(),
+            new FakeTelegramBotGateway(new Dictionary<string, bool>
+            {
+                ["-100200"] = true
+            }),
+            new FakeServiceScopeFactory(new FakeServiceProvider(repository)),
+            new FakeErrorAlertService(),
+            NullLogger<MiniAppChannelService>.Instance);
+
+        var result = await service.RegisterSharedChannelAsync(
+            user.TelegramUserId,
+            new TelegramSharedChatDto(requestId, -100200, "Overflow Channel", "overflow_channel"));
+
+        Assert.True(result.Success);
+        var addedChannel = repository.Items.Single(x => x.TelegramChatId == -100200);
+        Assert.False(addedChannel.IsActive);
     }
 
     [Fact]
@@ -191,6 +228,35 @@ public sealed class MiniAppChannelServiceTests
         Assert.Equal("Source One", subscription.ChannelName);
         Assert.Equal("https://t.me/source_one", subscription.ChannelReference);
         Assert.True(subscription.IsActive);
+    }
+
+    [Fact]
+    public async Task SetActiveAsync_Returns_False_When_No_Free_Managed_Channel_Slots_Are_Available()
+    {
+        var user = CreateUser();
+        var activeChannel = CreateManagedChannel(user, "Alpha", -1001, "alpha", true);
+        var pausedChannel = CreateManagedChannel(user, "Beta", -1002, "beta", false);
+
+        var service = new MiniAppChannelService(
+            new FakeManagedChannelRepository([activeChannel, pausedChannel]),
+            new FakeManagedChannelSubscriptionRepository([]),
+            new FakeAppUserRepository(user),
+            new FakeBillingService(
+                usage: new SubscriptionUsageDto("free", "Free", 1, 0, 1, 1, null, false)),
+            new FakePostRepository(),
+            new FakeTelegramBotGateway(new Dictionary<string, bool>
+            {
+                ["-1001"] = true,
+                ["-1002"] = true
+            }),
+            new FakeServiceScopeFactory(new FakeServiceProvider()),
+            new FakeErrorAlertService(),
+            NullLogger<MiniAppChannelService>.Instance);
+
+        var updated = await service.SetActiveAsync(user.TelegramUserId, pausedChannel.Id, true);
+
+        Assert.False(updated);
+        Assert.False(pausedChannel.IsActive);
     }
 
     private static ManagedChannel CreateManagedChannel(string channelName, long telegramChatId, string? username, bool isActive) =>
@@ -266,6 +332,9 @@ public sealed class MiniAppChannelServiceTests
         public Task<IReadOnlyList<ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ManagedChannel.User.TelegramUserId == telegramUserId).ToList());
 
+        public Task<IReadOnlyList<ManagedChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ChannelId == channelId).ToList());
+
         public Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ManagedChannelSubscription>>(Items.Where(x => x.ManagedChannelId == managedChannelId).ToList());
 
@@ -302,10 +371,12 @@ public sealed class MiniAppChannelServiceTests
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeBillingService : IBillingService
+    private sealed class FakeBillingService(
+        SubscriptionUsageDto? usage = null,
+        IReadOnlyList<SubscriptionPlanDefinitionDto>? availablePlans = null) : IBillingService
     {
         public Task<SubscriptionUsageDto> GetSubscriptionUsageAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new SubscriptionUsageDto("free", "Free", 1, 0, 1, 0, null, false));
+            Task.FromResult(usage ?? new SubscriptionUsageDto("free", "Free", 1, 0, 1, 0, null, false));
 
         public Task<ChannelTrackingResultDto> CanAddChannelAsync(long telegramUserId, Guid channelId, CancellationToken cancellationToken = default) =>
             Task.FromResult(new ChannelTrackingResultDto(true, string.Empty));
@@ -314,7 +385,7 @@ public sealed class MiniAppChannelServiceTests
             Task.FromResult(new ChannelTrackingResultDto(true, string.Empty));
 
         public Task<IReadOnlyList<SubscriptionPlanDefinitionDto>> ListAvailablePlansAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<SubscriptionPlanDefinitionDto>>([]);
+            Task.FromResult<IReadOnlyList<SubscriptionPlanDefinitionDto>>(availablePlans ?? []);
 
         public Task<IReadOnlyList<DonationOptionDto>> ListAvailableDonationOptionsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<DonationOptionDto>>([]);

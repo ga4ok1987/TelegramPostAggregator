@@ -78,6 +78,7 @@ public sealed class TelegramFeedDeliveryService(
     {
         using var scope = scopeFactory.CreateScope();
         var subscriptionRepository = scope.ServiceProvider.GetRequiredService<ISubscriptionRepository>();
+        var managedChannelRepository = scope.ServiceProvider.GetRequiredService<IManagedChannelRepository>();
         var managedChannelSubscriptionRepository = scope.ServiceProvider.GetRequiredService<IManagedChannelSubscriptionRepository>();
         var postRepository = scope.ServiceProvider.GetRequiredService<IPostRepository>();
         var billingService = scope.ServiceProvider.GetRequiredService<IBillingService>();
@@ -207,6 +208,7 @@ public sealed class TelegramFeedDeliveryService(
         var managedSubscriptions = await managedChannelSubscriptionRepository.GetActiveForDeliveryAsync(int.MaxValue, cancellationToken);
         managedSubscriptions = await FilterManagedSubscriptionsForCurrentPlanAsync(
             managedSubscriptions,
+            managedChannelRepository,
             subscriptionRepository,
             managedChannelSubscriptionRepository,
             billingService,
@@ -371,6 +373,7 @@ public sealed class TelegramFeedDeliveryService(
 
     private static async Task<IReadOnlyList<Domain.Entities.ManagedChannelSubscription>> FilterManagedSubscriptionsForCurrentPlanAsync(
         IReadOnlyList<Domain.Entities.ManagedChannelSubscription> activeSubscriptions,
+        IManagedChannelRepository managedChannelRepository,
         ISubscriptionRepository subscriptionRepository,
         IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
         IBillingService billingService,
@@ -392,8 +395,17 @@ public sealed class TelegramFeedDeliveryService(
                 managedChannelSubscriptionRepository,
                 billingService,
                 cancellationToken);
+            var usage = await billingService.GetSubscriptionUsageAsync(group.Key, cancellationToken);
+            var managedChannels = await managedChannelRepository.GetByUserTelegramIdAsync(group.Key, cancellationToken);
+            var allowedManagedChannelIds = managedChannels
+                .Where(x => x.IsActive)
+                .Take(Math.Max(usage.ManagedChannelLimit, 0))
+                .Select(x => x.Id)
+                .ToHashSet();
 
-            filtered.AddRange(group.Where(x => allowedChannelIds.Contains(x.ChannelId)));
+            filtered.AddRange(group.Where(x =>
+                allowedChannelIds.Contains(x.ChannelId) &&
+                allowedManagedChannelIds.Contains(x.ManagedChannelId)));
         }
 
         return filtered;

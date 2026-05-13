@@ -9,6 +9,7 @@ public interface IManagedChannelSubscriptionRepository
     Task<int> CountByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetPageByManagedChannelIdAsync(Guid managedChannelId, int skip, int take, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ManagedChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetByManagedChannelIdAsync(Guid managedChannelId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagedChannelSubscription>> GetActiveForDeliveryAsync(int take, CancellationToken cancellationToken = default);
     Task AddAsync(ManagedChannelSubscription subscription, CancellationToken cancellationToken = default);

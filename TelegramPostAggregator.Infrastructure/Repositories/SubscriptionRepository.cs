@@ -39,6 +39,14 @@ public sealed class SubscriptionRepository(AggregatorDbContext dbContext) : ISub
             .ThenBy(x => x.Channel.ChannelName)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<UserChannelSubscription>> GetByChannelIdAsync(Guid channelId, CancellationToken cancellationToken = default) =>
+        await dbContext.UserChannelSubscriptions
+            .Include(x => x.Channel)
+            .Include(x => x.User)
+            .Where(x => x.ChannelId == channelId)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<UserChannelSubscription>> GetActiveByUserTelegramIdAsync(long telegramUserId, CancellationToken cancellationToken = default) =>
         await dbContext.UserChannelSubscriptions
             .Include(x => x.Channel)

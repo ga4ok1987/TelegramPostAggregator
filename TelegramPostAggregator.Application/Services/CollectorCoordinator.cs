@@ -2,6 +2,7 @@ using TelegramPostAggregator.Application.Abstractions.External;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Application.Abstractions.Services;
 using TelegramPostAggregator.Application.DTOs;
+using TelegramPostAggregator.Application.Exceptions;
 using TelegramPostAggregator.Application.Options;
 using TelegramPostAggregator.Domain.Entities;
 using TelegramPostAggregator.Domain.Enums;
@@ -13,6 +14,8 @@ namespace TelegramPostAggregator.Application.Services;
 public sealed class CollectorCoordinator(
     ICollectorAccountRepository collectorAccountRepository,
     ITrackedChannelRepository trackedChannelRepository,
+    ISubscriptionRepository subscriptionRepository,
+    IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
     IPostRepository postRepository,
     ITelegramCollectorGateway telegramCollectorGateway,
     ITextNormalizer textNormalizer,
@@ -130,6 +133,19 @@ public sealed class CollectorCoordinator(
                 assignment.Channel.LastPostCollectedAtUtc = DateTimeOffset.UtcNow;
                 assignment.Channel.Status = ChannelTrackingStatus.Active;
             }
+            catch (TrackedChannelUnavailableException exception)
+            {
+                logger.LogWarning(exception, "Tracked channel became inaccessible and will be removed from subscriptions. ChannelId={ChannelId}", assignment.ChannelId);
+
+                await RemoveChannelFromSubscriptionsAsync(assignment.ChannelId, cancellationToken);
+
+                assignment.Status = ChannelTrackingStatus.Disabled;
+                assignment.LastError = exception.InnerException?.Message ?? exception.Message;
+                assignment.Channel.Status = ChannelTrackingStatus.Disabled;
+                assignment.Channel.LastCollectorError = exception.InnerException?.Message ?? exception.Message;
+                assignment.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                assignment.Channel.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            }
             catch (Exception exception)
             {
                 logger.LogError(exception, "Synchronization failed for channel {ChannelId}", assignment.ChannelId);
@@ -190,5 +206,20 @@ public sealed class CollectorCoordinator(
 
         return assignment.Channel.LastPostCollectedAtUtc > assignment.LastSyncedAtUtc.Value &&
                nowUtc - assignment.Channel.LastPostCollectedAtUtc.Value <= RealtimeSyncGracePeriod;
+    }
+
+    private async Task RemoveChannelFromSubscriptionsAsync(Guid channelId, CancellationToken cancellationToken)
+    {
+        var directSubscriptions = await subscriptionRepository.GetByChannelIdAsync(channelId, cancellationToken);
+        foreach (var subscription in directSubscriptions)
+        {
+            subscriptionRepository.Remove(subscription);
+        }
+
+        var managedSubscriptions = await managedChannelSubscriptionRepository.GetByChannelIdAsync(channelId, cancellationToken);
+        foreach (var subscription in managedSubscriptions)
+        {
+            managedChannelSubscriptionRepository.Remove(subscription);
+        }
     }
 }

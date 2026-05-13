@@ -8,6 +8,7 @@ namespace TelegramPostAggregator.Application.Services;
 
 public sealed class BillingService(
     IAppUserRepository appUserRepository,
+    IManagedChannelRepository managedChannelRepository,
     ISubscriptionRepository subscriptionRepository,
     IManagedChannelSubscriptionRepository managedChannelSubscriptionRepository,
     ISubscriptionPlanRepository subscriptionPlanRepository,
@@ -24,7 +25,18 @@ public sealed class BillingService(
         var user = await appUserRepository.GetByTelegramUserIdAsync(telegramUserId, cancellationToken);
         var plan = await ResolveEffectivePlanAsync(user, cancellationToken);
         var usedChannels = user is null ? 0 : await CountUsedUniqueChannelsAsync(user.TelegramUserId, cancellationToken);
-        var usedManagedChannels = user is null ? 0 : CountUsedManagedChannels(user);
+        var managedChannels = user is null
+            ? []
+            : await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var effectiveManagedChannelLimit = Math.Max(plan.ManagedChannelLimit + Math.Max(user?.ExtraManagedChannelSlots ?? 0, 0), 1);
+
+        if (user is not null)
+        {
+            await PauseOverflowManagedChannelsAsync(telegramUserId, effectiveManagedChannelLimit, cancellationToken);
+            managedChannels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        }
+
+        var usedManagedChannels = CountUsedManagedChannels(managedChannels);
 
         return MapUsage(
             plan,
@@ -68,17 +80,19 @@ public sealed class BillingService(
             return new ChannelTrackingResultDto(false, "Start the bot first, then connect your channel.", Usage: usage);
         }
 
-        var existingManagedChannels = user.ManagedChannels
-            .Where(x => x.IsActive)
-            .Select(x => x.TelegramChatId)
-            .ToHashSet();
-
-        if (existingManagedChannels.Contains(telegramChatId) || usage.UsedManagedChannels < usage.ManagedChannelLimit)
+        var existingManagedChannels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        if (existingManagedChannels.Any(x => x.TelegramChatId == telegramChatId))
         {
             return new ChannelTrackingResultDto(true, string.Empty, Usage: usage);
         }
 
-        var message = $"You reached the limit for owned channels in the {usage.CurrentPlanName} plan: {usage.UsedManagedChannels}/{usage.ManagedChannelLimit}. Open Plans to upgrade.";
+        var registrationLimit = await GetManagedChannelRegistrationLimitAsync(user, cancellationToken);
+        if (existingManagedChannels.Count < registrationLimit)
+        {
+            return new ChannelTrackingResultDto(true, string.Empty, Usage: usage);
+        }
+
+        var message = $"You reached the connection limit for owned channels: {existingManagedChannels.Count}/{registrationLimit}. Remove an unused channel or ask the admin for extra owned channel slots.";
         return new ChannelTrackingResultDto(false, message, Usage: usage);
     }
 
@@ -328,6 +342,16 @@ public sealed class BillingService(
         return await subscriptionPlanRepository.GetByCodeAsync(user.SubscriptionPlanCode, cancellationToken) ?? defaultPlan;
     }
 
+    private async Task<int> GetManagedChannelRegistrationLimitAsync(AppUser user, CancellationToken cancellationToken)
+    {
+        var plans = await subscriptionPlanRepository.ListAsync(cancellationToken);
+        var topPlanLimit = plans.Count == 0
+            ? BillingDefaults.CreatePlans().Max(x => x.ManagedChannelLimit)
+            : plans.Max(x => x.ManagedChannelLimit);
+
+        return Math.Max(topPlanLimit + Math.Max(user.ExtraManagedChannelSlots, 0), 1);
+    }
+
     private async Task<int> CountUsedUniqueChannelsAsync(long telegramUserId, CancellationToken cancellationToken)
     {
         var directSubscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
@@ -338,6 +362,49 @@ public sealed class BillingService(
             .Concat(managedSubscriptions.Select(x => x.ChannelId))
             .Distinct()
             .Count();
+    }
+
+    private async Task PauseOverflowManagedChannelsAsync(long telegramUserId, int activeLimit, CancellationToken cancellationToken)
+    {
+        var managedChannels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var activeChannels = managedChannels
+            .Where(x => x.IsActive)
+            .ToList();
+
+        if (activeChannels.Count <= activeLimit)
+        {
+            return;
+        }
+
+        var overflowChannels = activeChannels
+            .Skip(Math.Max(activeLimit, 0))
+            .ToList();
+
+        if (overflowChannels.Count == 0)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var overflowIds = overflowChannels
+            .Select(x => x.Id)
+            .ToHashSet();
+
+        foreach (var channel in overflowChannels)
+        {
+            channel.IsActive = false;
+            channel.UpdatedAtUtc = now;
+        }
+
+        var subscriptions = await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        foreach (var subscription in subscriptions.Where(x => overflowIds.Contains(x.ManagedChannelId) && x.IsActive))
+        {
+            subscription.IsActive = false;
+            subscription.UpdatedAtUtc = now;
+        }
+
+        await managedChannelSubscriptionRepository.SaveChangesAsync(cancellationToken);
+        await managedChannelRepository.SaveChangesAsync(cancellationToken);
     }
 
     private static string BuildPlanDescription(SubscriptionPlanDefinition plan)
@@ -388,6 +455,6 @@ public sealed class BillingService(
             donation.IsEnabled,
             donation.SortOrder);
 
-    private static int CountUsedManagedChannels(AppUser user) =>
-        user.ManagedChannels.Count(channel => channel.IsActive);
+    private static int CountUsedManagedChannels(IReadOnlyList<ManagedChannel> managedChannels) =>
+        managedChannels.Count(channel => channel.IsActive);
 }

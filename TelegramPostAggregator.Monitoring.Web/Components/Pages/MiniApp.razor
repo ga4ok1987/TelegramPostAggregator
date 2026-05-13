@@ -76,6 +76,11 @@
                                     {
                                         var isBusy = ViewModel.IsChannelBusy(channel.ChannelId);
                                         <article class="channel-card">
+                                            <button class="channel-settings-button" type="button" title="Channel settings" aria-label="Open channel settings" @onclick="() => OpenChannelSettings(channel)" disabled="@isBusy">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M10.6 2h2.8l.6 2.4a7.8 7.8 0 0 1 1.8.8l2.1-1.2 2 2-1.2 2.1c.34.57.61 1.18.8 1.82L22 10.6v2.8l-2.4.6a7.8 7.8 0 0 1-.8 1.8l1.2 2.1-2 2-2.1-1.2a7.8 7.8 0 0 1-1.82.8L13.4 22h-2.8l-.6-2.4a7.8 7.8 0 0 1-1.8-.8L6.1 20l-2-2 1.2-2.1a7.8 7.8 0 0 1-.8-1.82L2 13.4v-2.8l2.4-.6c.19-.64.46-1.25.8-1.8L4 6.1l2-2 2.1 1.2c.57-.34 1.18-.61 1.82-.8zM12 8.2A3.8 3.8 0 1 0 12 15.8 3.8 3.8 0 0 0 12 8.2z" fill="currentColor" />
+                                                </svg>
+                                            </button>
                                             <div class="channel-card-header">
                                                 <div class="channel-avatar">
                                                     @if (!string.IsNullOrWhiteSpace(channel.AvatarImageUrl))
@@ -376,11 +381,76 @@
             </section>
         </div>
     }
+
+    @if (SelectedSettingsChannel is not null)
+    {
+        <div class="modal-backdrop" @onclick="CloseChannelSettings">
+            <section class="subscription-modal settings-modal" @onclick:stopPropagation="true">
+                <div class="subscription-modal-header">
+                    <div>
+                        <span class="miniapp-kicker">Channel Settings</span>
+                        <h3>@SelectedSettingsChannel.ChannelName</h3>
+                        <p>Review this connected channel and manage it from here.</p>
+                    </div>
+                    <button class="icon-button" type="button" @onclick="CloseChannelSettings" aria-label="Close channel settings">
+                        <span class="close-glyph">x</span>
+                    </button>
+                </div>
+
+                <div class="settings-sheet">
+                    <article class="miniapp-panel settings-card">
+                        <span class="settings-label">Status</span>
+                        <div class="settings-value-row">
+                            <strong>@GetStatusLabel(SelectedSettingsChannel)</strong>
+                            <span class="status-pill @GetStatusCssClass(SelectedSettingsChannel)">@GetStatusLabel(SelectedSettingsChannel)</span>
+                        </div>
+                    </article>
+
+                    <article class="miniapp-panel settings-card">
+                        <span class="settings-label">Channel reference</span>
+                        @if (TryBuildReferenceHref(SelectedSettingsChannel.ChannelReference, out var settingsReferenceHref))
+                        {
+                            <a class="settings-link" href="@settingsReferenceHref" target="_blank" rel="noreferrer noopener">@FormatReference(SelectedSettingsChannel.ChannelReference)</a>
+                        }
+                        else
+                        {
+                            <strong>@FormatReference(SelectedSettingsChannel.ChannelReference)</strong>
+                        }
+                    </article>
+
+                    <article class="miniapp-panel settings-card">
+                        <span class="settings-label">Connected source subscriptions</span>
+                        <strong>@SelectedSettingsChannel.Subscriptions.Count</strong>
+                        <p>Open subscriptions to manage every source channel separately.</p>
+                    </article>
+
+                    <article class="miniapp-panel settings-card">
+                        <span class="settings-label">Latest sync</span>
+                        <strong>@FormatDate(SelectedSettingsChannel.LastPostCollectedAtUtc)</strong>
+                        @if (!string.IsNullOrWhiteSpace(SelectedSettingsChannel.LastCollectorError))
+                        {
+                            <p class="channel-warning settings-warning">@SelectedSettingsChannel.LastCollectorError</p>
+                        }
+                    </article>
+
+                    <div class="settings-actions">
+                        <button class="channel-tool" type="button" @onclick="() => OpenSettingsSubscriptions(SelectedSettingsChannel)" disabled="@ViewModel.IsChannelBusy(SelectedSettingsChannel.ChannelId)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M5 5h6v6H5zM13 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6z" fill="currentColor" />
+                            </svg>
+                            <span>Subscriptions</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    }
 </div>
 
 @code {
     private MiniAppTab ActiveTab { get; set; } = MiniAppTab.Channels;
     private MiniAppChannelDto? SelectedChannel { get; set; }
+    private MiniAppChannelDto? SelectedSettingsChannel { get; set; }
     private string CurrentTitle => ActiveTab switch
     {
         MiniAppTab.Channels => "My Private Channels",
@@ -430,6 +500,16 @@
 
     private void CloseSubscriptions() => SelectedChannel = null;
 
+    private void OpenChannelSettings(MiniAppChannelDto channel) => SelectedSettingsChannel = channel;
+
+    private void CloseChannelSettings() => SelectedSettingsChannel = null;
+
+    private void OpenSettingsSubscriptions(MiniAppChannelDto channel)
+    {
+        SelectedSettingsChannel = null;
+        SelectedChannel = channel;
+    }
+
     private Task OpenDrawerAsync() =>
         ViewModel.ShowPlaceholderAsync("Mini App navigation drawer is reserved for future sections.").AsTask();
 
@@ -456,6 +536,11 @@
         if (SelectedChannel is not null)
         {
             SelectedChannel = ViewModel.Channels.FirstOrDefault(x => x.ChannelId == SelectedChannel.ChannelId);
+        }
+
+        if (SelectedSettingsChannel is not null)
+        {
+            SelectedSettingsChannel = ViewModel.Channels.FirstOrDefault(x => x.ChannelId == SelectedSettingsChannel.ChannelId);
         }
 
         await InvokeAsync(StateHasChanged);
