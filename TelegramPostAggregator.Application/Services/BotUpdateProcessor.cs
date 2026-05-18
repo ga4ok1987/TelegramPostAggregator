@@ -225,14 +225,44 @@ public sealed class BotUpdateProcessor(
     {
         var chatId = update.ChatId;
         var text = update.Text?.Trim();
-        if (!chatId.HasValue || string.IsNullOrWhiteSpace(text) || !ManagedChannelReferenceRegex.IsMatch(text))
+        if (!chatId.HasValue || string.IsNullOrWhiteSpace(text))
         {
             return new BotCommandResultDto(true, string.Empty);
         }
 
+        if (!ManagedChannelReferenceRegex.IsMatch(text))
+        {
+            logger.LogDebug(
+                "Ignoring managed channel post because it is not a supported channel reference. ChatId={ChatId}, Text={Text}",
+                chatId.Value,
+                text);
+            return new BotCommandResultDto(true, string.Empty);
+        }
+
+        logger.LogInformation(
+            "Processing managed channel source subscription request. ChatId={ChatId}, ChannelReference={ChannelReference}",
+            chatId.Value,
+            text);
+
         var result = await channelTrackingService.AddTrackedChannelToManagedChannelAsync(
             new AddManagedChannelTrackedChannelDto(chatId.Value, text),
             cancellationToken);
+
+        if (result.Success)
+        {
+            logger.LogInformation(
+                "Managed channel source subscription created successfully. ChatId={ChatId}, ChannelReference={ChannelReference}",
+                chatId.Value,
+                text);
+        }
+        else
+        {
+            logger.LogWarning(
+                "Managed channel source subscription failed. ChatId={ChatId}, ChannelReference={ChannelReference}, Message={Message}",
+                chatId.Value,
+                text,
+                result.Message);
+        }
 
         return new BotCommandResultDto(result.Success, result.Message);
     }

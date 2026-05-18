@@ -436,6 +436,9 @@ public sealed class MiniAppChannelServiceTests
         public Task<TelegramBotApiResultDto> SendAnimationAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
 
+        public Task<TelegramBotApiResultDto> SendStickerAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
+
         public Task<TelegramBotApiResultDto> SendVideoNoteAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
             Task.FromResult(new TelegramBotApiResultDto(true, System.Net.HttpStatusCode.OK, null));
 
@@ -476,6 +479,9 @@ public sealed class MiniAppChannelServiceTests
         public Task<IReadOnlyList<TelegramPost>> GetUndeliveredForChannelAsync(Guid channelId, long? lastDeliveredTelegramMessageId, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
         public Task<IReadOnlyList<TelegramPost>> GetByChannelAndMediaGroupIdAsync(Guid channelId, string mediaGroupId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
         public Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<long?>(999);
+        public Task<IReadOnlyList<TelegramPost>> GetPendingEmbeddingsBatchAsync(DateTimeOffset notOlderThanUtc, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
+        public Task<IReadOnlyList<TelegramPost>> GetExpiredPendingEmbeddingsAsync(DateTimeOffset olderThanUtc, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TelegramPost>>([]);
+        public Task<int> CountByEmbeddingStatusAsync(TelegramPostAggregator.Domain.Enums.EmbeddingStatus status, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task AddAsync(TelegramPost post, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
