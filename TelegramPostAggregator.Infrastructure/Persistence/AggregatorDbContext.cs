@@ -20,6 +20,9 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
     public DbSet<SubscriptionPlanDefinition> SubscriptionPlanDefinitions => Set<SubscriptionPlanDefinition>();
     public DbSet<DonationOption> DonationOptions => Set<DonationOption>();
     public DbSet<SubscriptionPaymentTransaction> SubscriptionPaymentTransactions => Set<SubscriptionPaymentTransaction>();
+    public DbSet<EmbeddingSettings> EmbeddingSettings => Set<EmbeddingSettings>();
+    public DbSet<OpenAiApiKey> OpenAiApiKeys => Set<OpenAiApiKey>();
+    public DbSet<TelegramPostEmbedding> TelegramPostEmbeddings => Set<TelegramPostEmbedding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -139,6 +142,7 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
         {
             entity.ToTable("telegram_posts");
             entity.HasIndex(x => new { x.ChannelId, x.TelegramMessageId }).IsUnique();
+            entity.HasIndex(x => new { x.EmbeddingStatus, x.PublishedAtUtc });
             entity.Property(x => x.AuthorSignature).HasMaxLength(256);
             entity.Property(x => x.RawText).HasColumnType("text");
             entity.Property(x => x.NormalizedText).HasColumnType("text");
@@ -146,8 +150,14 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.OriginalPostUrl).HasMaxLength(1024);
             entity.Property(x => x.SourceKind).HasConversion<string>().HasMaxLength(64).HasDefaultValue(PostSourceKind.ChannelPost);
             entity.Property(x => x.MetadataJson).HasColumnType("jsonb");
+            entity.Property(x => x.EmbeddingStatus).HasConversion<string>().HasMaxLength(32).HasDefaultValue(EmbeddingStatus.None);
+            entity.Property(x => x.EmbeddingModel).HasMaxLength(64);
+            entity.Property(x => x.EmbeddingLastError).HasMaxLength(2048);
             entity.HasOne(x => x.Channel).WithMany(x => x.Posts).HasForeignKey(x => x.ChannelId);
             entity.HasOne(x => x.CollectorAccount).WithMany().HasForeignKey(x => x.CollectorAccountId);
+            entity.HasOne(x => x.Embedding)
+                .WithOne(x => x.Post)
+                .HasForeignKey<TelegramPostEmbedding>(x => x.PostId);
         });
 
         modelBuilder.Entity<FactCheckRequest>(entity =>
@@ -199,6 +209,31 @@ public sealed class AggregatorDbContext(DbContextOptions<AggregatorDbContext> op
             entity.Property(x => x.TelegramPaymentChargeId).HasMaxLength(256);
             entity.Property(x => x.FailureReason).HasMaxLength(512);
             entity.HasOne(x => x.User).WithMany(x => x.PaymentTransactions).HasForeignKey(x => x.UserId);
+        });
+
+        modelBuilder.Entity<EmbeddingSettings>(entity =>
+        {
+            entity.ToTable("embedding_settings");
+            entity.Property(x => x.Model).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<OpenAiApiKey>(entity =>
+        {
+            entity.ToTable("openai_api_keys");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.IsActive);
+            entity.Property(x => x.DisplayName).HasMaxLength(256);
+            entity.Property(x => x.ApiKey).HasColumnType("text");
+        });
+
+        modelBuilder.Entity<TelegramPostEmbedding>(entity =>
+        {
+            entity.ToTable("telegram_post_embeddings");
+            entity.HasIndex(x => x.PostId).IsUnique();
+            entity.HasIndex(x => x.ExpiresAtUtc);
+            entity.Property(x => x.Model).HasMaxLength(64);
+            entity.Property(x => x.NormalizedText).HasColumnType("text");
+            entity.Property(x => x.VectorJson).HasColumnType("jsonb");
         });
     }
 }

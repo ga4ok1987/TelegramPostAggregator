@@ -38,6 +38,7 @@ public sealed class TelegramFeedDeliveryService(
         "(document post)",
         "(audio post)",
         "(voice message)",
+        "(sticker)",
         "(video note)",
         "(no text)"
     ];
@@ -691,6 +692,25 @@ public sealed class TelegramFeedDeliveryService(
             }
         }
 
+        if (metadata?.MediaKind == "sticker")
+        {
+            var mediaLocalPath = await EnsureMediaLocalPathAsync(post, metadata, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(mediaLocalPath) && File.Exists(mediaLocalPath))
+            {
+                var response = await telegramBotGateway.SendStickerAsync(
+                    new TelegramBotMediaMessageDto(chatId, mediaLocalPath, string.Empty, "sticker", null),
+                    cancellationToken);
+                if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                {
+                    return await SendTextFallbackAsync(chatId, posts, cancellationToken);
+                }
+
+                return response.IsSuccessStatusCode
+                    ? CombinePrimaryResult(response, await SendOverflowMessagesAsync(chatId, messageParts, cancellationToken))
+                    : response;
+            }
+        }
+
         if (metadata?.MediaKind == "video_note")
         {
             var mediaLocalPath = await EnsureMediaLocalPathAsync(post, metadata, cancellationToken);
@@ -812,12 +832,25 @@ public sealed class TelegramFeedDeliveryService(
             return downloadedPath;
         }
 
-        return await tdLibCollectorClientManager.DownloadMessageMediaAndGetPathAsync(
-            post.CollectorAccount,
-            metadata.ChatId,
-            metadata.MessageId,
-            metadata.MediaKind,
-            cancellationToken);
+        try
+        {
+            return await tdLibCollectorClientManager.DownloadMessageMediaAndGetPathAsync(
+                post.CollectorAccount,
+                metadata.ChatId,
+                metadata.MessageId,
+                metadata.MediaKind,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception.Message.Contains("Not Found", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                exception,
+                "TDLib message media lookup failed for post {PostId}, source chat {SourceChatId}, message {SourceMessageId}. Falling back to text-only delivery.",
+                post.Id,
+                metadata.ChatId,
+                metadata.MessageId);
+            return null;
+        }
     }
 
     private async Task TrackManagedPostDeliveryAsync(

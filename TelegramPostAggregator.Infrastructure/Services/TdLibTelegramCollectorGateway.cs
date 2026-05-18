@@ -242,6 +242,7 @@ public sealed class TdLibTelegramCollectorGateway(
             TdApi.MessageContent.MessageDocument document => ExtractFormattedText(document.Caption),
             TdApi.MessageContent.MessageAudio audio => ExtractFormattedText(audio.Caption),
             TdApi.MessageContent.MessageVoiceNote voiceNote => ExtractFormattedText(voiceNote.Caption),
+            TdApi.MessageContent.MessageSticker => "(sticker)",
             TdApi.MessageContent.MessageVideoNote => "(video note)",
             TdApi.MessageContent.MessagePoll poll => ExtractFormattedText(poll.Poll.Question),
             _ => HumanizeContentType(content.DataType)
@@ -268,6 +269,7 @@ public sealed class TdLibTelegramCollectorGateway(
             "messageDocument" => "(document post)",
             "messageAudio" => "(audio post)",
             "messageVoiceNote" => "(voice message)",
+            "messageSticker" => "(sticker)",
             "messageVideoNote" => "(video note)",
             _ => $"({dataType})"
         };
@@ -352,6 +354,10 @@ public sealed class TdLibTelegramCollectorGateway(
             case TdApi.MessageContent.MessageAnimation animation:
                 metadata.MediaKind = "animation";
                 metadata.MediaFileId = animation.Animation.Animation_.Id;
+                break;
+            case TdApi.MessageContent.MessageSticker sticker:
+                metadata.MediaKind = "sticker";
+                metadata.MediaFileId = sticker.Sticker.Sticker_.Id;
                 break;
             case TdApi.MessageContent.MessageVideoNote videoNote:
                 metadata.MediaKind = "video_note";

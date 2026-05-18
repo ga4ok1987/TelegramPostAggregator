@@ -327,6 +327,24 @@ billingAdminApi.MapPatch("/donations/{donationId:guid}", async (Guid donationId,
     return updated is null ? Results.NotFound() : Results.Ok(updated);
 });
 
+billingAdminApi.MapPatch("/embeddings", async (AdminEmbeddingSettingsUpdateRequest request, IBillingAdminService service, CancellationToken cancellationToken) =>
+{
+    var updated = await service.UpdateEmbeddingSettingsAsync(request.RetentionDays, cancellationToken);
+    return Results.Ok(updated);
+});
+
+billingAdminApi.MapPost("/embeddings/keys", async (AdminEmbeddingApiKeyCreateRequest request, IBillingAdminService service, CancellationToken cancellationToken) =>
+{
+    var created = await service.AddEmbeddingApiKeyAsync(request.DisplayName, request.ApiKey, cancellationToken);
+    return Results.Ok(created);
+});
+
+billingAdminApi.MapDelete("/embeddings/keys/{keyId:guid}", async (Guid keyId, IBillingAdminService service, CancellationToken cancellationToken) =>
+{
+    var deleted = await service.DeleteEmbeddingApiKeyAsync(keyId, cancellationToken);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
 controlCenterApi.MapGet(string.Empty, async (IAdminUserService service, ClaimsPrincipal user, CancellationToken cancellationToken) =>
 {
     var currentAdminUserId = GetCurrentAdminUserId(user);

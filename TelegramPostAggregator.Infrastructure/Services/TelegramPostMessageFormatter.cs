@@ -14,6 +14,7 @@ public static class TelegramPostMessageFormatter
         "(document post)",
         "(audio post)",
         "(voice message)",
+        "(sticker)",
         "(video note)",
         "(messagevideonote)",
         "(no text)"

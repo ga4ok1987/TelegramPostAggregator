@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Channels Monitor Docker build cache prune daily
+
+[Timer]
+OnCalendar=*-*-* 03:25:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

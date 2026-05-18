@@ -1,0 +1,9 @@
+[Unit]
+Description=Channels Monitor Docker build cache prune
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/channels-monitor-docker-prune.sh
+

@@ -57,4 +57,25 @@ public sealed record PaymentProcessingResultDto(
 
 public sealed record BillingSettingsDto(
     IReadOnlyList<SubscriptionPlanDefinitionDto> Plans,
-    IReadOnlyList<DonationOptionDto> Donations);
+    IReadOnlyList<DonationOptionDto> Donations,
+    EmbeddingSettingsDto Embeddings);
+
+public sealed record EmbeddingSettingsDto(
+    bool IsEnabled,
+    string Model,
+    int RetentionDays,
+    IReadOnlyList<EmbeddingApiKeyDto> ApiKeys,
+    EmbeddingStatusOverviewDto Status);
+
+public sealed record EmbeddingApiKeyDto(
+    Guid Id,
+    string DisplayName,
+    string MaskedKey,
+    bool IsActive,
+    DateTimeOffset CreatedAtUtc);
+
+public sealed record EmbeddingStatusOverviewDto(
+    int ReadyCount,
+    int PendingCount,
+    int FailedCount,
+    int StoredVectorCount);

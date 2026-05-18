@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TelegramPostAggregator.Application.Abstractions.Repositories;
 using TelegramPostAggregator.Domain.Entities;
+using TelegramPostAggregator.Domain.Enums;
 using TelegramPostAggregator.Infrastructure.Persistence;
 
 namespace TelegramPostAggregator.Infrastructure.Repositories;
@@ -69,6 +70,30 @@ public sealed class PostRepository(AggregatorDbContext dbContext) : IPostReposit
             .OrderByDescending(x => x.TelegramMessageId)
             .Select(x => (long?)x.TelegramMessageId)
             .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TelegramPost>> GetPendingEmbeddingsBatchAsync(DateTimeOffset notOlderThanUtc, int take, CancellationToken cancellationToken = default) =>
+        await dbContext.TelegramPosts
+            .Include(x => x.Channel)
+            .Where(x =>
+                x.PublishedAtUtc >= notOlderThanUtc &&
+                (x.EmbeddingStatus == EmbeddingStatus.Pending || x.EmbeddingStatus == EmbeddingStatus.PendingRefresh))
+            .OrderBy(x => x.PublishedAtUtc)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TelegramPost>> GetExpiredPendingEmbeddingsAsync(DateTimeOffset olderThanUtc, int take, CancellationToken cancellationToken = default) =>
+        await dbContext.TelegramPosts
+            .Where(x =>
+                x.PublishedAtUtc < olderThanUtc &&
+                (x.EmbeddingStatus == EmbeddingStatus.Pending ||
+                 x.EmbeddingStatus == EmbeddingStatus.PendingRefresh ||
+                 x.EmbeddingStatus == EmbeddingStatus.Processing))
+            .OrderBy(x => x.PublishedAtUtc)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+    public Task<int> CountByEmbeddingStatusAsync(EmbeddingStatus status, CancellationToken cancellationToken = default) =>
+        dbContext.TelegramPosts.CountAsync(x => x.EmbeddingStatus == status, cancellationToken);
 
     public async Task AddAsync(TelegramPost post, CancellationToken cancellationToken = default) =>
         await dbContext.TelegramPosts.AddAsync(post, cancellationToken);

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TelegramPostAggregator.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TelegramPostAggregator.Infrastructure.Persistence;
 namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AggregatorDbContext))]
-    partial class AggregatorDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260515115208_AddPostEmbeddings")]
+    partial class AddPostEmbeddings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -551,37 +554,6 @@ namespace TelegramPostAggregator.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("managed_channel_subscriptions", (string)null);
-                });
-
-            modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.OpenAiApiKey", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApiKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IsActive");
-
-                    b.ToTable("openai_api_keys", (string)null);
                 });
 
             modelBuilder.Entity("TelegramPostAggregator.Domain.Entities.SubscriptionPaymentTransaction", b =>

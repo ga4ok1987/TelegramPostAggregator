@@ -113,6 +113,9 @@ public sealed class TelegramBotGateway(
     public Task<TelegramBotApiResultDto> SendAnimationAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
         SendMediaAsync("sendAnimation", "animation", message, cancellationToken);
 
+    public Task<TelegramBotApiResultDto> SendStickerAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
+        SendMediaAsync("sendSticker", "sticker", message, cancellationToken, includeCaption: false);
+
     public Task<TelegramBotApiResultDto> SendVideoNoteAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default) =>
         SendMediaAsync("sendVideoNote", "video_note", message, cancellationToken);
 
@@ -322,19 +325,26 @@ public sealed class TelegramBotGateway(
         string endpoint,
         string fieldName,
         TelegramBotMediaMessageDto message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool includeCaption = true)
     {
         if (_options.UseLocalBotApiFileTransport &&
             File.Exists(message.FilePath) &&
             ShouldUseLocalPathTransport(fieldName, message.FilePath))
         {
-            using var localContent = new FormUrlEncodedContent(new Dictionary<string, string>
+            var localPayload = new Dictionary<string, string>
             {
                 ["chat_id"] = message.ChatId.ToString(),
-                [fieldName] = message.FilePath,
-                ["caption"] = message.Caption,
-                ["parse_mode"] = message.ParseMode ?? string.Empty
-            });
+                [fieldName] = message.FilePath
+            };
+
+            if (includeCaption)
+            {
+                localPayload["caption"] = message.Caption;
+                localPayload["parse_mode"] = message.ParseMode ?? string.Empty;
+            }
+
+            using var localContent = new FormUrlEncodedContent(localPayload);
 
             using var localResponse = await CreateClient().PostAsync(endpoint, localContent, cancellationToken);
             var localResult = await ToResultAsync(localResponse, cancellationToken);
@@ -351,10 +361,13 @@ public sealed class TelegramBotGateway(
 
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(message.ChatId.ToString()), "chat_id");
-        content.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
-        if (!string.IsNullOrWhiteSpace(message.ParseMode))
+        if (includeCaption)
         {
-            content.Add(new StringContent(message.ParseMode, Encoding.UTF8), "parse_mode");
+            content.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
+            if (!string.IsNullOrWhiteSpace(message.ParseMode))
+            {
+                content.Add(new StringContent(message.ParseMode, Encoding.UTF8), "parse_mode");
+            }
         }
 
         using var stream = File.OpenRead(message.FilePath);
@@ -371,10 +384,13 @@ public sealed class TelegramBotGateway(
 
         using var officialContent = new MultipartFormDataContent();
         officialContent.Add(new StringContent(message.ChatId.ToString()), "chat_id");
-        officialContent.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
-        if (!string.IsNullOrWhiteSpace(message.ParseMode))
+        if (includeCaption)
         {
-            officialContent.Add(new StringContent(message.ParseMode, Encoding.UTF8), "parse_mode");
+            officialContent.Add(new StringContent(message.Caption, Encoding.UTF8), "caption");
+            if (!string.IsNullOrWhiteSpace(message.ParseMode))
+            {
+                officialContent.Add(new StringContent(message.ParseMode, Encoding.UTF8), "parse_mode");
+            }
         }
 
         using var officialStream = File.OpenRead(message.FilePath);
@@ -842,6 +858,7 @@ public sealed class TelegramBotGateway(
         return fieldName switch
         {
             "animation" => false,
+            "sticker" => false,
             "video" or "video_note" => extension is ".mp4" or ".m4v" or ".mov" or ".webm",
             "audio" => extension is ".mp3" or ".m4a" or ".aac" or ".ogg" or ".wav",
             "voice" => extension is ".ogg" or ".oga" or ".mp3",
@@ -857,9 +874,18 @@ public sealed class TelegramBotGateway(
         var preferredExtension = fieldName switch
         {
             "photo" => ".jpg",
-            "video" or "animation" or "video_note" => ".mp4",
+            "video" or "video_note" => ".mp4",
+            "animation" => currentExtension is ".gif" ? ".gif" : ".mp4",
             "audio" => ".mp3",
             "voice" => ".ogg",
+            "sticker" => currentExtension switch
+            {
+                ".webp" => ".webp",
+                ".png" => ".png",
+                ".webm" => ".webm",
+                ".tgs" => ".tgs",
+                _ => ".webp"
+            },
             "document" => string.IsNullOrWhiteSpace(currentExtension) ? ".bin" : currentExtension,
             _ => string.IsNullOrWhiteSpace(currentExtension) ? ".bin" : currentExtension
         };
@@ -882,7 +908,13 @@ public sealed class TelegramBotGateway(
         return fieldName switch
         {
             "photo" => InferImageMediaType(filePath),
-            "video" or "animation" or "video_note" => "video/mp4",
+            "video" or "video_note" => extension is ".webm" ? "video/webm" : "video/mp4",
+            "animation" => extension switch
+            {
+                ".gif" => "image/gif",
+                ".webm" => "video/webm",
+                _ => "video/mp4"
+            },
             "audio" => extension switch
             {
                 ".ogg" or ".oga" => "audio/ogg",
@@ -891,6 +923,14 @@ public sealed class TelegramBotGateway(
                 _ => "audio/mpeg"
             },
             "voice" => "audio/ogg",
+            "sticker" => extension switch
+            {
+                ".webp" => "image/webp",
+                ".png" => "image/png",
+                ".webm" => "video/webm",
+                ".tgs" => "application/x-tgsticker",
+                _ => "application/octet-stream"
+            },
             "document" => "application/octet-stream",
             _ => "application/octet-stream"
         };

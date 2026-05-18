@@ -73,7 +73,8 @@ public sealed class TdLibRealtimePostIngestionService(
                 HasMedia = HasMedia(message.Content),
                 IsForwarded = message.ForwardInfo is not null,
                 OriginalPostUrl = await BuildOriginalPostUrlAsync(client, channel, message.ChatId, message.Id),
-                MetadataJson = metadataJson
+                MetadataJson = metadataJson,
+                EmbeddingStatus = EmbeddingStatus.Pending
             };
 
             await postRepository.AddAsync(post, cancellationToken);
@@ -162,6 +163,11 @@ public sealed class TdLibRealtimePostIngestionService(
             existingPost.IsForwarded = message.ForwardInfo is not null;
             existingPost.OriginalPostUrl = await BuildOriginalPostUrlAsync(client, channel, chatId, messageId);
             existingPost.MetadataJson = await BuildMetadataJsonAsync(client, chatId, message, cancellationToken);
+            if (existingPost.EmbeddingStatus is EmbeddingStatus.Ready or EmbeddingStatus.Failed)
+            {
+                existingPost.EmbeddingStatus = EmbeddingStatus.PendingRefresh;
+                existingPost.EmbeddingLastError = null;
+            }
             existingPost.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
             var pendingTrackings = await postTrackingRepository.GetByPostIdAsync(existingPost.Id, cancellationToken);
@@ -270,6 +276,7 @@ public sealed class TdLibRealtimePostIngestionService(
             TdApi.MessageContent.MessageDocument document => ExtractFormattedText(document.Caption),
             TdApi.MessageContent.MessageAudio audio => ExtractFormattedText(audio.Caption),
             TdApi.MessageContent.MessageVoiceNote voiceNote => ExtractFormattedText(voiceNote.Caption),
+            TdApi.MessageContent.MessageSticker => "(sticker)",
             TdApi.MessageContent.MessageVideoNote => "(video note)",
             TdApi.MessageContent.MessagePoll poll => ExtractFormattedText(poll.Poll.Question),
             _ => $"({content.DataType})"
@@ -358,6 +365,10 @@ public sealed class TdLibRealtimePostIngestionService(
             case TdApi.MessageContent.MessageAnimation animation:
                 metadata.MediaKind = "animation";
                 metadata.MediaFileId = animation.Animation.Animation_.Id;
+                break;
+            case TdApi.MessageContent.MessageSticker sticker:
+                metadata.MediaKind = "sticker";
+                metadata.MediaFileId = sticker.Sticker.Sticker_.Id;
                 break;
             case TdApi.MessageContent.MessageVideoNote videoNote:
                 metadata.MediaKind = "video_note";

@@ -23,6 +23,8 @@ public static class DependencyInjection
         services.Configure<TdLibOptions>(configuration.GetSection(TdLibOptions.SectionName));
         services.Configure<CollectorBootstrapOptions>(configuration.GetSection(CollectorBootstrapOptions.SectionName));
         services.Configure<TelegramBotOptions>(configuration.GetSection(TelegramBotOptions.SectionName));
+        services.Configure<EmbeddingOptions>(configuration.GetSection(EmbeddingOptions.SectionName));
+        services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
 
         var connectionString = configuration.GetSection(DatabaseOptions.SectionName).GetValue<string>("ConnectionString")
             ?? configuration.GetConnectionString("DefaultConnection")
@@ -41,11 +43,13 @@ public static class DependencyInjection
         services.AddHttpClient(nameof(TelegramFeedDeliveryService));
         services.AddHttpClient(nameof(TelegramBotGateway), client => client.Timeout = TimeSpan.FromMinutes(3));
         services.AddHttpClient(nameof(TelegramErrorAlertService));
+        services.AddHttpClient(nameof(PostEmbeddingService), client => client.Timeout = TimeSpan.FromSeconds(90));
         services.AddHostedService<TelegramBotPollingService>();
         services.AddHostedService<TelegramFeedDeliveryService>();
         services.AddScoped<ITelegramCollectorGateway, TdLibTelegramCollectorGateway>();
         services.AddSingleton<ITelegramBotGateway, TelegramBotGateway>();
         services.AddSingleton<IErrorAlertService, TelegramErrorAlertService>();
+        services.AddScoped<IPostEmbeddingService, PostEmbeddingService>();
         services.AddScoped<IFactCheckProvider, MockFactCheckProvider>();
         services.AddScoped<CollectorBootstrapper>();
 
@@ -53,6 +57,8 @@ public static class DependencyInjection
         services.AddScoped<CollectorPostSyncJob>();
         services.AddScoped<FactCheckDispatchJob>();
         services.AddScoped<TdLibMediaCacheCleanupJob>();
+        services.AddScoped<PostEmbeddingDispatchJob>();
+        services.AddScoped<PostEmbeddingCleanupJob>();
 
         services.AddHangfire(configuration => configuration
             .UseSimpleAssemblyNameTypeSerializer()
@@ -116,6 +122,16 @@ public static class DependencyInjection
             job => job.RunAsync(CancellationToken.None),
             "*/3 * * * *");
 
+        recurringJobs.AddOrUpdate<PostEmbeddingDispatchJob>(
+            "post-embeddings-dispatch",
+            job => job.RunAsync(CancellationToken.None),
+            "*/1 * * * *");
+
+        recurringJobs.AddOrUpdate<PostEmbeddingCleanupJob>(
+            "post-embeddings-cleanup",
+            job => job.RunAsync(CancellationToken.None),
+            "20 * * * *");
+
         recurringJobs.AddOrUpdate<TdLibMediaCacheCleanupJob>(
             "tdlib-media-cache-cleanup",
             job => job.RunAsync(CancellationToken.None),
@@ -131,6 +147,9 @@ public static class DependencyInjection
         services.AddScoped<IManagedChannelRepository, ManagedChannelRepository>();
         services.AddScoped<IManagedChannelSubscriptionRepository, ManagedChannelSubscriptionRepository>();
         services.AddScoped<IManagedChannelPostTrackingRepository, ManagedChannelPostTrackingRepository>();
+    services.AddScoped<IEmbeddingSettingsRepository, EmbeddingSettingsRepository>();
+    services.AddScoped<IOpenAiApiKeyRepository, OpenAiApiKeyRepository>();
+    services.AddScoped<ITelegramPostEmbeddingRepository, TelegramPostEmbeddingRepository>();
         services.AddScoped<ICollectorAccountRepository, CollectorAccountRepository>();
         services.AddScoped<IPostRepository, PostRepository>();
         services.AddScoped<IFactCheckRequestRepository, FactCheckRequestRepository>();

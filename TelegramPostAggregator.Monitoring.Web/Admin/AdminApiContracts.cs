@@ -41,3 +41,9 @@ public sealed record AdminDonationUpdateRequest(
     int StarsAmount,
     bool IsEnabled,
     int SortOrder);
+
+public sealed record AdminEmbeddingSettingsUpdateRequest(int RetentionDays);
+
+public sealed record AdminEmbeddingApiKeyCreateRequest(
+    string DisplayName,
+    string ApiKey);

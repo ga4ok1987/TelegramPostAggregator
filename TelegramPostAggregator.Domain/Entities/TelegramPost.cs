@@ -22,6 +22,12 @@ public sealed class TelegramPost : BaseEntity
     public string? OriginalPostUrl { get; set; }
     public PostSourceKind SourceKind { get; set; } = PostSourceKind.ChannelPost;
     public string MetadataJson { get; set; } = "{}";
+    public EmbeddingStatus EmbeddingStatus { get; set; } = EmbeddingStatus.None;
+    public string? EmbeddingModel { get; set; }
+    public int? EmbeddingTextVersion { get; set; }
+    public DateTimeOffset? EmbeddingUpdatedAtUtc { get; set; }
+    public string? EmbeddingLastError { get; set; }
 
     public ICollection<ManagedChannelPostTracking> ManagedChannelTrackings { get; set; } = new List<ManagedChannelPostTracking>();
+    public TelegramPostEmbedding? Embedding { get; set; }
 }

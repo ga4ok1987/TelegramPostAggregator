@@ -208,6 +208,15 @@ Recurring Hangfire jobs are registered automatically on startup:
 - `fact-check-dispatch`
 - `tdlib-media-cache-cleanup`
 
+### Disk cleanup policy
+
+- `tdlib-media-cache-cleanup` runs hourly at minute `15`
+- regular TDLib media cleanup deletes cached files older than `24h`
+- if disk usage stays above the warning threshold after cleanup, the system sends an alert
+- if disk usage reaches the emergency threshold, the system performs an additional TDLib media cleanup pass against older cache files and sends an alert
+- Docker build cache cleanup is handled separately at the host level through `ops/systemd/channels-monitor-docker-prune.service` and `ops/systemd/channels-monitor-docker-prune.timer`
+- the host-level Docker cleanup prunes only build cache and dangling images older than `7 days`; it does not remove volumes, database data, or active containers
+
 ## Current live-integration gaps
 
 - message ingestion currently uses `GetChatHistory` polling through jobs; push-style persistence from `UpdateNewMessage` can be added next

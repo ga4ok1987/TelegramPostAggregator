@@ -18,4 +18,9 @@ public sealed class TdLibOptions
     public bool MediaCacheCleanupEnabled { get; set; } = true;
     public int MediaCacheRetentionHours { get; set; } = 24;
     public int MediaCacheCleanupBatchSize { get; set; } = 500;
+    public int DiskAlertThresholdPercent { get; set; } = 80;
+    public int DiskEmergencyCleanupThresholdPercent { get; set; } = 85;
+    public int DiskRecoveryTargetPercent { get; set; } = 80;
+    public int EmergencyMediaCacheCleanupBatchSize { get; set; } = 5000;
+    public int EmergencyMediaCacheMinimumAgeHours { get; set; } = 6;
 }

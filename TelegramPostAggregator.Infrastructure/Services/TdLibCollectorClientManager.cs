@@ -154,10 +154,11 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
         {
             return await DownloadFileAndGetPathAsync(client, fileId, cancellationToken);
         }
-        catch (Exception exception) when (exception.Message.Contains("File not found", StringComparison.OrdinalIgnoreCase))
+        catch (Exception exception) when (exception.Message.Contains("File not found", StringComparison.OrdinalIgnoreCase) ||
+               exception.Message.Contains("File download has failed or was canceled", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
-                "TDLib file {FileId} is no longer available for collector {CollectorAccountKey}.",
+                "TDLib file {FileId} is unavailable or its download failed for collector {CollectorAccountKey}.",
                 fileId,
                 collectorAccount.ExternalAccountKey);
             return null;
@@ -188,10 +189,11 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
         {
             return await DownloadFileAndGetPathAsync(client, fileId.Value, cancellationToken);
         }
-        catch (Exception exception) when (exception.Message.Contains("File not found", StringComparison.OrdinalIgnoreCase))
+        catch (Exception exception) when (exception.Message.Contains("File not found", StringComparison.OrdinalIgnoreCase) ||
+               exception.Message.Contains("File download has failed or was canceled", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
-                "TDLib message media is missing for chat {ChatId}, message {MessageId}, collector {CollectorAccountKey}.",
+                "TDLib message media is unavailable or its download failed for chat {ChatId}, message {MessageId}, collector {CollectorAccountKey}.",
                 chatId,
                 messageId,
                 collectorAccount.ExternalAccountKey);
@@ -403,6 +405,8 @@ public sealed class TdLibCollectorClientManager : IAsyncDisposable
                 document.Document.Document_.Id,
             TdApi.MessageContent.MessageAnimation animation when string.Equals(mediaKind, "animation", StringComparison.OrdinalIgnoreCase) =>
                 animation.Animation.Animation_.Id,
+            TdApi.MessageContent.MessageSticker sticker when string.Equals(mediaKind, "sticker", StringComparison.OrdinalIgnoreCase) =>
+                sticker.Sticker.Sticker_.Id,
             TdApi.MessageContent.MessageVideoNote videoNote when string.Equals(mediaKind, "video_note", StringComparison.OrdinalIgnoreCase) =>
                 videoNote.VideoNote.Video.Id,
             _ => null

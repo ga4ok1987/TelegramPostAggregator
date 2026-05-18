@@ -58,23 +58,31 @@ public sealed class ChannelTrackingService(
         }
 
         var subscription = await subscriptionRepository.GetAsync(user.Id, channel.Id, cancellationToken);
+        var canActivateSubscription = channel.Status == ChannelTrackingStatus.Active;
         if (subscription is null)
         {
-            var latestKnownMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(channel.Id, cancellationToken);
             subscription = new UserChannelSubscription
             {
                 UserId = user.Id,
                 ChannelId = channel.Id,
-                IsActive = true,
-                LastDeliveredTelegramMessageId = latestKnownMessageId
+                IsActive = canActivateSubscription
             };
+
+            if (canActivateSubscription)
+            {
+                subscription.LastDeliveredTelegramMessageId = await postRepository.GetLatestTelegramMessageIdForChannelAsync(channel.Id, cancellationToken);
+            }
 
             await subscriptionRepository.AddAsync(subscription, cancellationToken);
         }
         else
         {
-            subscription.IsActive = true;
-            subscription.LastDeliveredTelegramMessageId ??= await postRepository.GetLatestTelegramMessageIdForChannelAsync(channel.Id, cancellationToken);
+            subscription.IsActive = canActivateSubscription;
+            if (canActivateSubscription)
+            {
+                subscription.LastDeliveredTelegramMessageId ??= await postRepository.GetLatestTelegramMessageIdForChannelAsync(channel.Id, cancellationToken);
+            }
+
             subscription.UpdatedAtUtc = DateTimeOffset.UtcNow;
         }
 
@@ -139,16 +147,9 @@ public sealed class ChannelTrackingService(
 
     public async Task RemoveTrackedChannelAsync(RemoveTrackedChannelDto request, CancellationToken cancellationToken = default)
     {
-        var channels = await trackedChannelRepository.GetChannelsForUserAsync(request.TelegramUserId, cancellationToken);
         var normalizedKey = channelKeyNormalizer.Normalize(request.ChannelReference);
-        var channel = channels.FirstOrDefault(x => x.NormalizedChannelKey == normalizedKey);
-        if (channel is null)
-        {
-            return;
-        }
-
-        var activeSubscriptions = await subscriptionRepository.GetActiveByUserTelegramIdAsync(request.TelegramUserId, cancellationToken);
-        var target = activeSubscriptions.FirstOrDefault(x => x.ChannelId == channel.Id);
+        var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(request.TelegramUserId, cancellationToken);
+        var target = subscriptions.FirstOrDefault(x => x.Channel.NormalizedChannelKey == normalizedKey);
         if (target is null)
         {
             return;
@@ -191,7 +192,7 @@ public sealed class ChannelTrackingService(
         var managedSubscriptions = await managedChannelSubscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
         var managedChannels = await managedChannelRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
         var updatedCount = 0;
-        foreach (var subscription in subscriptions.Where(x => x.IsActive != isActive))
+        foreach (var subscription in subscriptions.Where(x => x.Channel.Status == ChannelTrackingStatus.Active && x.IsActive != isActive))
         {
             subscription.IsActive = isActive;
             if (isActive)
@@ -242,7 +243,7 @@ public sealed class ChannelTrackingService(
 
     public async Task<IReadOnlyList<SubscriptionDto>> ListSubscriptionsAsync(long telegramUserId, CancellationToken cancellationToken = default)
     {
-        var subscriptions = await subscriptionRepository.GetByUserTelegramIdAsync(telegramUserId, cancellationToken);
+        var subscriptions = await subscriptionRepository.GetActiveByUserTelegramIdAsync(telegramUserId, cancellationToken);
         return subscriptions
             .Where(x => !IsReservedUiChannel(x.Channel.ChannelName, x.Channel.UsernameOrInviteLink))
             .Select(x => new SubscriptionDto(

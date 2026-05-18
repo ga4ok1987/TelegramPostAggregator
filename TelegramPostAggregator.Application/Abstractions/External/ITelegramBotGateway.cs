@@ -22,6 +22,8 @@ public interface ITelegramBotGateway
 
     Task<TelegramBotApiResultDto> SendAnimationAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default);
 
+    Task<TelegramBotApiResultDto> SendStickerAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default);
+
     Task<TelegramBotApiResultDto> SendVideoNoteAsync(TelegramBotMediaMessageDto message, CancellationToken cancellationToken = default);
 
     Task<TelegramBotApiResultDto?> SendMediaGroupAsync(TelegramBotMediaGroupMessageDto message, CancellationToken cancellationToken = default);

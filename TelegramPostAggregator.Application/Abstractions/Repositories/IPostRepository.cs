@@ -1,4 +1,5 @@
 using TelegramPostAggregator.Domain.Entities;
+using TelegramPostAggregator.Domain.Enums;
 
 namespace TelegramPostAggregator.Application.Abstractions.Repositories;
 
@@ -11,6 +12,9 @@ public interface IPostRepository
     Task<IReadOnlyList<TelegramPost>> GetUndeliveredForChannelAsync(Guid channelId, long? lastDeliveredTelegramMessageId, int take, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TelegramPost>> GetByChannelAndMediaGroupIdAsync(Guid channelId, string mediaGroupId, CancellationToken cancellationToken = default);
     Task<long?> GetLatestTelegramMessageIdForChannelAsync(Guid channelId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<TelegramPost>> GetPendingEmbeddingsBatchAsync(DateTimeOffset notOlderThanUtc, int take, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<TelegramPost>> GetExpiredPendingEmbeddingsAsync(DateTimeOffset olderThanUtc, int take, CancellationToken cancellationToken = default);
+    Task<int> CountByEmbeddingStatusAsync(EmbeddingStatus status, CancellationToken cancellationToken = default);
     Task AddAsync(TelegramPost post, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

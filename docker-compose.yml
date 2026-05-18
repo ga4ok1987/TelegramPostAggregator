@@ -65,6 +65,11 @@ services:
       TdLib__SystemVersion: Debian
       TdLib__ApplicationVersion: 1.0.0
       TdLib__SystemLanguageCode: en
+      Embeddings__Enabled: ${EMBEDDINGS_ENABLED:-true}
+      Embeddings__BatchSize: ${EMBEDDINGS_BATCH_SIZE:-20}
+      Embeddings__CleanupBatchSize: ${EMBEDDINGS_CLEANUP_BATCH_SIZE:-200}
+      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      OpenAI__BaseUrl: ${OPENAI_BASE_URL:-https://api.openai.com/v1/}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

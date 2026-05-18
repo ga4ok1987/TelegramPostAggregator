@@ -101,6 +101,11 @@ public sealed class CollectorCoordinator(
                             existing.IsForwarded = collectedPost.IsForwarded;
                             existing.OriginalPostUrl = collectedPost.OriginalPostUrl;
                             existing.MetadataJson = collectedPost.MetadataJson;
+                            if (existing.EmbeddingStatus is EmbeddingStatus.Ready or EmbeddingStatus.Failed)
+                            {
+                                existing.EmbeddingStatus = EmbeddingStatus.PendingRefresh;
+                                existing.EmbeddingLastError = null;
+                            }
                             existing.UpdatedAtUtc = DateTimeOffset.UtcNow;
                         }
 
@@ -122,7 +127,8 @@ public sealed class CollectorCoordinator(
                         HasMedia = collectedPost.HasMedia,
                         IsForwarded = collectedPost.IsForwarded,
                         OriginalPostUrl = collectedPost.OriginalPostUrl,
-                        MetadataJson = collectedPost.MetadataJson
+                        MetadataJson = collectedPost.MetadataJson,
+                        EmbeddingStatus = EmbeddingStatus.Pending
                     };
 
                     await postRepository.AddAsync(post, cancellationToken);

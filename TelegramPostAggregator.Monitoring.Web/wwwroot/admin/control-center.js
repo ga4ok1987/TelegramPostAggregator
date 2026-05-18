@@ -288,6 +288,81 @@
       </form>
     `).join('');
 
+    const embeddings = `
+      <form class="section-card" data-form="embeddings">
+        <div class="section-head">
+          <div>
+            <h3>Post embeddings</h3>
+            <p class="section-description">Embeddings are calculated only for new source posts. Stored vectors are kept for a limited time and cleaned up automatically.</p>
+          </div>
+          <span class="state-pill ${settings.embeddings.isEnabled ? 'active' : 'danger'}">${settings.embeddings.isEnabled ? 'Enabled' : 'Disabled'}</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label>Model</label>
+            <input value="${escapeHtml(settings.embeddings.model)}" disabled />
+          </div>
+          <div class="form-field">
+            <label>Retention days</label>
+            <input name="retentionDays" type="number" min="1" max="30" value="${settings.embeddings.retentionDays}" required />
+          </div>
+        </div>
+        <div class="row-meta">
+          <div class="meta-item"><span class="meta-label">Ready</span><strong>${settings.embeddings.status.readyCount}</strong></div>
+          <div class="meta-item"><span class="meta-label">Pending</span><strong>${settings.embeddings.status.pendingCount}</strong></div>
+          <div class="meta-item"><span class="meta-label">Failed</span><strong>${settings.embeddings.status.failedCount}</strong></div>
+          <div class="meta-item"><span class="meta-label">Stored vectors</span><strong>${settings.embeddings.status.storedVectorCount}</strong></div>
+        </div>
+        <div class="section-actions">
+          <button class="action-button primary" type="submit">Save embeddings</button>
+        </div>
+      </form>
+    `;
+
+    const apiKeys = settings.embeddings.apiKeys.length === 0
+      ? '<div class="empty-state">No OpenAI API keys saved yet.</div>'
+      : settings.embeddings.apiKeys.map(key => `
+        <div class="section-card">
+          <div class="section-head">
+            <div>
+              <h3>${escapeHtml(key.displayName)}</h3>
+              <p class="section-description">${escapeHtml(key.maskedKey)}</p>
+            </div>
+            <span class="state-pill ${key.isActive ? 'active' : ''}">${key.isActive ? 'Active' : 'Stored'}</span>
+          </div>
+          <div class="row-meta">
+            <div class="meta-item"><span class="meta-label">Created</span><strong>${formatDate(key.createdAtUtc)}</strong></div>
+          </div>
+          <div class="section-actions">
+            <button class="danger-button" type="button" data-action="delete-embedding-key" data-key-id="${key.id}">Delete key</button>
+          </div>
+        </div>
+      `).join('');
+
+    const apiKeyForm = `
+      <form class="section-card" data-form="embedding-key">
+        <div class="section-head">
+          <div>
+            <h3>OpenAI API keys</h3>
+            <p class="section-description">Add a new key to use for embeddings. The newest saved key becomes active immediately.</p>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label>Display name</label>
+            <input name="displayName" placeholder="Primary OpenAI key" />
+          </div>
+          <div class="form-field">
+            <label>API key</label>
+            <input name="apiKey" type="password" placeholder="sk-..." required />
+          </div>
+        </div>
+        <div class="section-actions">
+          <button class="action-button primary" type="submit">Add key</button>
+        </div>
+      </form>
+    `;
+
     els.billingPanel.innerHTML = `
       <div class="stacked-sections">
         <section class="section-card">
@@ -308,6 +383,16 @@
             </div>
           </div>
           <div class="stacked-sections">${donations}</div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-head">
+            <div>
+              <h3>AI embeddings</h3>
+              <p class="section-description">Configure how long embeddings for new posts are retained in storage and manage OpenAI API keys.</p>
+            </div>
+          </div>
+          <div class="stacked-sections">${embeddings}${apiKeyForm}${apiKeys}</div>
         </section>
       </div>
     `;
@@ -465,6 +550,42 @@
     await loadBillingSettings();
   }
 
+  async function handleEmbeddingSettingsSave(form) {
+    await api('/api/admin/billing/embeddings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        retentionDays: Number(form.retentionDays.value)
+      })
+    });
+
+    await loadBillingSettings();
+  }
+
+  async function handleEmbeddingKeySave(form) {
+    await api('/api/admin/billing/embeddings/keys', {
+      method: 'POST',
+      body: JSON.stringify({
+        displayName: form.displayName.value.trim(),
+        apiKey: form.apiKey.value.trim()
+      })
+    });
+
+    form.reset();
+    await loadBillingSettings();
+  }
+
+  async function handleEmbeddingKeyDelete(keyId) {
+    if (!confirm('Delete this OpenAI API key?')) {
+      return;
+    }
+
+    await api(`/api/admin/billing/embeddings/keys/${keyId}`, {
+      method: 'DELETE'
+    });
+
+    await loadBillingSettings();
+  }
+
   els.usersList.addEventListener('click', async event => {
     const row = event.target.closest('[data-admin-user-id]');
     if (!row) return;
@@ -488,6 +609,19 @@
 
       if (actionEl.dataset.action === 'delete-user') {
         await handleDelete(actionEl.dataset.adminUserId);
+      }
+    } catch (error) {
+      setError(error.message);
+    }
+  });
+
+  els.billingPanel.addEventListener('click', async event => {
+    const actionEl = event.target.closest('[data-action]');
+    if (!actionEl) return;
+
+    try {
+      if (actionEl.dataset.action === 'delete-embedding-key') {
+        await handleEmbeddingKeyDelete(actionEl.dataset.keyId);
       }
     } catch (error) {
       setError(error.message);
@@ -520,6 +654,14 @@
       if (form.dataset.form === 'donation') {
         await handleDonationSave(form);
       }
+
+      if (form.dataset.form === 'embeddings') {
+        await handleEmbeddingSettingsSave(form);
+      }
+
+      if (form.dataset.form === 'embedding-key') {
+        await handleEmbeddingKeySave(form);
+      }
     } catch (error) {
       setError(error.message);
     }
@@ -538,6 +680,14 @@
 
       if (form.dataset.form === 'donation') {
         await handleDonationSave(form);
+      }
+
+      if (form.dataset.form === 'embeddings') {
+        await handleEmbeddingSettingsSave(form);
+      }
+
+      if (form.dataset.form === 'embedding-key') {
+        await handleEmbeddingKeySave(form);
       }
     } catch (error) {
       setError(error.message);
